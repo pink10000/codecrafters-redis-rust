@@ -16,9 +16,9 @@ fn main() {
         match stream {
             Ok(mut _stream) => {
                 println!("accepted new connection");
-                while _stream.peek(&mut [0; 1]).is_ok() {
-                    handle_client(&mut _stream);
-                }
+                // while _stream.peek(&mut [0; 1]).is_ok() {
+                handle_client(&mut _stream);
+                // }
             }
             Err(e) => {
                 println!("error: {}", e);
