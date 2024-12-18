@@ -1,10 +1,13 @@
 #![allow(unused_imports)]
 use std::{
-    io::Write,
+    io::{Read, Write},
     net::{TcpListener, TcpStream},
 };
 
 fn handle_client(stream: &mut TcpStream) {
+    let mut buf: [u8; 1024] = [0; 1024];
+    let _ = stream.read(&mut buf);
+
     let pong_str: String = "+PONG\r\n".to_string();
     let _ = stream.write(pong_str.as_bytes());
 }
