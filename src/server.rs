@@ -1,13 +1,17 @@
-use std::collections::HashMap;
 use crate::parser::RespType;
+use std::{collections::HashMap, time::Duration, time::Instant};
 
 pub struct ServerState {
     db: HashMap<String, String>,
+    expiry: HashMap<String, Instant>,
 }
 
 impl ServerState {
     pub fn new() -> Self {
-        ServerState { db: HashMap::new() }
+        ServerState {
+            db: HashMap::new(),
+            expiry: HashMap::new(),
+        }
     }
 
     pub fn execute_resp(&mut self, resp: RespType) -> String {
@@ -34,23 +38,57 @@ impl ServerState {
                 "echo" => {
                     let str: String = self.execute_resp(arr[1].clone());
                     format!("${}\r\n{}\r\n", str.len(), str)
-                },
-                "set" => {
-                    let key = self.execute_resp(arr[1].clone());
-                    let value = self.execute_resp(arr[2].clone());
-                    self.db.insert(key, value);
-                    format!("+OK\r\n")
-                },
-                "get" => {
-                    let key = self.execute_resp(arr[1].clone());
-                    match self.db.get(&key) {
-                        Some(value) => format!("${}\r\n{}\r\n", value.len(), value),
-                        None => self.execute_resp(RespType::NullBulkString),
-                    }
                 }
+                "set" => self.handle_set(arr),
+                "get" => self.handle_get(arr),
                 _ => "-ERR unknown command\r\n".to_string(),
             },
             _ => "-ERR unknown command\r\n".to_string(),
+        }
+    }
+
+    fn handle_set(&mut self, arr: Vec<RespType>) -> String {
+        let key = self.execute_resp(arr[1].clone());
+        let value = self.execute_resp(arr[2].clone());
+        match arr[3].clone() {
+            RespType::BulkString(str) => match str.to_lowercase().as_str() {
+                "px" => {
+                    let expiry: String = self.execute_resp(arr[4].clone());
+                    let expiry: u64 = expiry.parse().unwrap();
+                    let expiry_time = Instant::now()
+                        .checked_add(Duration::from_millis(expiry))
+                        .unwrap();
+
+                    self.db.insert(key.clone(), value);
+                    self.expiry.insert(key.clone(), expiry_time);
+                    "+OK\r\n".to_string()
+                }
+                _ => "-ERR value is not a valid RESP type\r\n".to_string(),
+            },
+            _ => "-ERR value is not a valid RESP type\r\n".to_string(),
+        }
+    }
+
+    fn handle_get(&mut self, arr: Vec<RespType>) -> String {
+        let key = self.execute_resp(arr[1].clone());
+        self.check_expiry();
+        match self.db.get(&key) {
+            Some(val) => format!("${}\r\n{}\r\n", val.len(), val),
+            None => self.execute_resp(RespType::NullBulkString),
+        }
+    }
+
+    fn check_expiry(&mut self) {
+        let now = Instant::now();
+        let mut expired_keys: Vec<String> = Vec::new();
+        for (key, expiry) in self.expiry.iter() {
+            if now > *expiry {
+                expired_keys.push(key.clone());
+            }
+        }
+        for key in expired_keys {
+            self.db.remove(&key);
+            self.expiry.remove(&key);
         }
     }
 }
