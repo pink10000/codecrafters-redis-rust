@@ -1,5 +1,6 @@
 #![allow(unused_imports)]
 pub mod parser;
+pub mod server;
 
 use std::{
     io::{Read, Write, Error},
@@ -7,7 +8,7 @@ use std::{
     thread,
 };
 
-use parser::ServerState;
+use server::ServerState;
 
 fn handle_client(mut stream: TcpStream) {
     let mut srv = ServerState::new();
