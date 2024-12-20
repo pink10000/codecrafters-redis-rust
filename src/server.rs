@@ -50,7 +50,7 @@ impl ServerState {
     fn handle_set(&mut self, arr: Vec<RespType>) -> String {
         let key = self.execute_resp(arr[1].clone());
         let value = self.execute_resp(arr[2].clone());
-        if arr.len() == 2 {
+        if arr.len() == 3 {
             self.db.insert(key.clone(), value);
             return "+OK\r\n".to_string();
         }
