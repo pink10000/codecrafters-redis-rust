@@ -41,6 +41,7 @@ impl ServerState {
                 }
                 "set" => self.handle_set(arr),
                 "get" => self.handle_get(arr),
+                "info" => self.handle_info(arr),
                 _ => "-ERR unknown command\r\n".to_string(),
             },
             _ => "-ERR unknown command\r\n".to_string(),
@@ -80,6 +81,18 @@ impl ServerState {
         match self.db.get(&key) {
             Some(val) => format!("${}\r\n{}\r\n", val.len(), val),
             None => self.execute_resp(RespType::NullBulkString),
+        }
+    }
+
+    fn handle_info(&self, arr: Vec<RespType>) -> String {
+        match arr[1].clone() {
+            RespType::BulkString(str) => match str.to_lowercase().as_str() {
+                "replication" => {
+                    format!("role:master\r\n")
+                }
+                _ => "-ERR unknown subcommand\r\n".to_string(),
+            },
+            _ => "-ERR unknown subcommand\r\n".to_string(),
         }
     }
 
