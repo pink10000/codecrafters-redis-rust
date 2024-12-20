@@ -47,7 +47,7 @@ fn main() {
     
     let args: Vec<String> = env::args().collect();
 
-    let mut idx: usize = 0;
+    let mut idx: usize = 1; // needs to be one to skip the binary call
     while idx < args.len() {
         let arg = &args[idx as usize];
         match arg.as_str() {
@@ -61,7 +61,7 @@ fn main() {
                 }
             },
             "--replicaof" => {
-                if args.len() > (idx as usize) + 2 {
+                if args.len() > (idx as usize) + 1 {
                     // ip + port passed a singular string
                     let ip_port = args[(idx + 1) as usize].clone();    
                     let mut split = ip_port.split(" ");
