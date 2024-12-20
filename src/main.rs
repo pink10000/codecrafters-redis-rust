@@ -3,12 +3,15 @@ pub mod parser;
 pub mod server;
 
 use std::{
-    io::{Read, Write, Error},
+    env,
+    io::{Error, Read, Write},
     net::{TcpListener, TcpStream},
     thread,
 };
 
 use server::ServerState;
+
+const DEFAULT_PORT: u16 = 6379;
 
 fn handle_client(mut stream: TcpStream) {
     let mut srv = ServerState::new();
@@ -35,7 +38,27 @@ fn handle_client(mut stream: TcpStream) {
 }
 
 fn main() {
-    let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
+    let mut port = DEFAULT_PORT;
+    let args: Vec<String> = env::args().collect();
+    if args.len() > 1 {
+        let flag = &args[1];
+        match flag.as_str() {
+            "--port" => {
+                if args.len() > 2 {
+                    port = args[2].parse::<u16>().unwrap();
+                } else {
+                    eprintln!("Port number not provided");
+                    return;
+                }
+            }
+            _ => {
+                eprintln!("Unknown flag: {}", flag);
+                return;
+            }
+        }
+    }
+
+    let listener = TcpListener::bind(format!("127.0.0.1:{}", port)).unwrap();
 
     for stream in listener.incoming() {
         println!("Found stream, handling connection:");
