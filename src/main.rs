@@ -1,29 +1,46 @@
 #![allow(unused_imports)]
+pub mod parser;
+
 use std::{
-    io::{Read, Write},
+    io::{Read, Write, Error},
     net::{TcpListener, TcpStream},
     thread,
 };
 
-fn handle_client(stream: &mut TcpStream) {
-    let mut buf: [u8; 1024] = [0; 1024];
-    let _ = stream.read(&mut buf);
+use parser::execute_resp;
 
-    let pong_str: String = "+PONG\r\n".to_string();
-    let _ = stream.write(pong_str.as_bytes());
+fn handle_client(mut stream: TcpStream) {
+    while stream.peek(&mut [0; 1]).is_ok() {
+        let mut buf: [u8; 1024] = [0; 1024];
+        let read_res: Result<usize, Error> = stream.read(&mut buf);
+        let resp: parser::RespType;
+
+        match read_res {
+            Ok(size) => {
+                let command = String::from_utf8_lossy(&buf[..size]);
+                resp = parser::parse_resp(&command).unwrap();
+                println!("Received command: {:?}", resp);
+            }
+            Err(e) => {
+                eprintln!("Failed to read from stream: {}", e);
+                return;
+            }
+        }
+        let serialized_response: String = execute_resp(resp);
+        let _ = stream.write(serialized_response.as_bytes());
+    }
 }
 
 fn main() {
     let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
 
     for stream in listener.incoming() {
+        println!("Found stream, handling connection:");
         match stream {
             Ok(mut _stream) => {
                 println!("accepted new connection");
                 thread::spawn(move || {
-                    while _stream.peek(&mut [0; 1]).is_ok() {
-                        handle_client(&mut _stream);
-                    }
+                    handle_client(_stream);
                 });
             }
             Err(e) => {
