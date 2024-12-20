@@ -1,19 +1,42 @@
 use crate::parser::RespType;
 use std::{collections::HashMap, time::Duration, time::Instant};
 
+pub struct ServerAddr {
+    _ip: String,
+    _port: u16,
+}
+
+impl ServerAddr {
+    pub fn new(_ip: String, _port: u16) -> Self {
+        Self { _ip, _port }
+    }
+}
+
 pub struct ServerState {
     db: HashMap<String, String>,
     expiry: HashMap<String, Instant>,
+    _port: u16,
+    _replica_of: Option<ServerAddr>,
 }
 
+/*
+Data structure for the server state.
+- db: HashMap<String, String> to store key-value pairs.
+- expiry: HashMap<String, Instant> to store expiry time for keys.
+*/
 impl ServerState {
-    pub fn new() -> Self {
+    pub fn new(port: u16, replica_of: Option<ServerAddr>) -> Self {
         ServerState {
             db: HashMap::new(),
             expiry: HashMap::new(),
+            _port: port,
+            _replica_of: replica_of,
         }
     }
 
+    /*
+    So far, most execuations require the type to be a  RespType::Array.
+    */
     pub fn execute_resp(&mut self, resp: RespType) -> RespType {
         match resp {
             RespType::Array(arr) => self.execute_array(arr),
@@ -80,9 +103,7 @@ impl ServerState {
     fn handle_info(&self, arr: Vec<RespType>) -> RespType {
         match arr[1].clone() {
             RespType::BulkString(str) => match str.to_lowercase().as_str() {
-                "replication" => {
-                    RespType::BulkString("role:master".to_string())
-                }
+                "replication" => RespType::BulkString("role:master".to_string()),
                 _ => RespType::Error("ERR unknown subcommand".to_string()),
             },
             _ => RespType::Error("ERR unknown subcommand".to_string()),
