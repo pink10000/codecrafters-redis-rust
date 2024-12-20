@@ -43,7 +43,6 @@ impl RespType {
 }
 
 pub fn parse_resp(input: &str) -> Result<RespType, String> {
-    println!("{:?}", input.chars());
     let mut chars = input.chars().peekable();
     parse_value(&mut chars)
 }
