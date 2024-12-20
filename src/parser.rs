@@ -19,7 +19,10 @@ pub fn execute_resp(resp: RespType) -> String {
             match cmd {
                 RespType::BulkString(str) => match str.to_lowercase().as_str() {
                     "ping" => "+PONG\r\n".to_string(),
-                    "echo" => format!("{}\r\n", execute_resp(arr[1].clone())),
+                    "echo" => {
+                        let str: String = execute_resp(arr[1].clone());
+                        format!("+{}\r\n{}\r\n", str.len(), str)
+                    }
                     _ => "-ERR unknown command\r\n".to_string(),
                 },
                 _ => "-ERR unknown command\r\n".to_string(),
