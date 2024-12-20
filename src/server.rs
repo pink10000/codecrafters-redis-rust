@@ -34,6 +34,13 @@ impl ServerState {
         }
     }
 
+    pub fn get_role(&self) -> String {
+        match self._replica_of {
+            Some(_) => "slave".to_string(),
+            None => "master".to_string(),
+        }
+    }
+
     /*
     So far, most execuations require the type to be a  RespType::Array.
     */
@@ -103,7 +110,10 @@ impl ServerState {
     fn handle_info(&self, arr: Vec<RespType>) -> RespType {
         match arr[1].clone() {
             RespType::BulkString(str) => match str.to_lowercase().as_str() {
-                "replication" => RespType::BulkString("role:master".to_string()),
+                "replication" => {
+                    let role = self.get_role();
+                    RespType::BulkString(format!("role:{}", role))
+                },
                 _ => RespType::Error("ERR unknown subcommand".to_string()),
             },
             _ => RespType::Error("ERR unknown subcommand".to_string()),
