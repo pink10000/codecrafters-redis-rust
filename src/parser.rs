@@ -21,7 +21,7 @@ pub fn execute_resp(resp: RespType) -> String {
                     "ping" => "+PONG\r\n".to_string(),
                     "echo" => {
                         let str: String = execute_resp(arr[1].clone());
-                        format!("+{}\r\n{}\r\n", str.len(), str)
+                        format!("${}\r\n{}\r\n", str.len(), str)
                     }
                     _ => "-ERR unknown command\r\n".to_string(),
                 },
