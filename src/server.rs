@@ -88,7 +88,7 @@ impl ServerState {
         match arr[1].clone() {
             RespType::BulkString(str) => match str.to_lowercase().as_str() {
                 "replication" => {
-                    format!("role:master\r\n")
+                    format!("$11\r\nrole:master\r\n")
                 }
                 _ => "-ERR unknown subcommand\r\n".to_string(),
             },
