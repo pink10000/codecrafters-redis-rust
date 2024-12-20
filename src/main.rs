@@ -7,9 +7,11 @@ use std::{
     thread,
 };
 
-use parser::execute_resp;
+use parser::ServerState;
 
 fn handle_client(mut stream: TcpStream) {
+    let mut srv = ServerState::new();
+
     while stream.peek(&mut [0; 1]).is_ok() {
         let mut buf: [u8; 1024] = [0; 1024];
         let read_res: Result<usize, Error> = stream.read(&mut buf);
@@ -26,7 +28,7 @@ fn handle_client(mut stream: TcpStream) {
                 return;
             }
         }
-        let serialized_response: String = execute_resp(resp);
+        let serialized_response: String = srv.execute_resp(resp);
         let _ = stream.write(serialized_response.as_bytes());
     }
 }
