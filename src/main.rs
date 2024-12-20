@@ -9,6 +9,7 @@ use std::{
     thread,
 };
 
+use parser::RespType;
 use server::ServerState;
 
 const DEFAULT_PORT: u16 = 6379;
@@ -32,7 +33,8 @@ fn handle_client(mut stream: TcpStream) {
                 return;
             }
         }
-        let serialized_response: String = srv.execute_resp(resp);
+        let parsed_response: RespType  = srv.execute_resp(resp);
+        let serialized_response: String = parsed_response.to_resp_string();
         let _ = stream.write(serialized_response.as_bytes());
     }
 }

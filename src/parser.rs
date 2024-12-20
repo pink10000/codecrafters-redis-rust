@@ -15,6 +15,33 @@ pub enum RespType {
     NullArray,
 }
 
+impl RespType {
+    pub fn to_resp_string(&self) -> String {
+        match self {
+            RespType::Array(vec) => {
+                if vec.is_empty() {
+                    "$-1\r\n".to_string() // Null array
+                } else {
+                    let elements: String = vec.iter().map(|e| e.to_resp_string()).collect();
+                    format!("*{}\r\n{}", vec.len(), elements)
+                }
+            }
+            RespType::BulkString(str) => {
+                if str.is_empty() {
+                    "$-1\r\n".to_string() // Null bulk string
+                } else {
+                    format!("${}\r\n{}\r\n", str.len(), str)
+                }
+            },
+            RespType::SimpleString(str) => format!("+{}\r\n", str),
+            RespType::Error(_) => todo!(),
+            RespType::Integer(_) => todo!(),
+            RespType::NullBulkString => "$-1\r\n".to_string(),
+            RespType::NullArray => "*-1\r\n".to_string(),
+        }
+    }
+}
+
 pub fn parse_resp(input: &str) -> Result<RespType, String> {
     println!("{:?}", input.chars());
     let mut chars = input.chars().peekable();
