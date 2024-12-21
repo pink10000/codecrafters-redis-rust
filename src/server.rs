@@ -1,10 +1,6 @@
 use crate::parser::RespType;
 use std::{
-    collections::HashMap,
-    fmt::format,
-    io::{Read, Write},
-    net::TcpStream,
-    time::{Duration, Instant},
+    collections::HashMap, fmt::format, io::{Read, Write}, net::TcpStream, time::{Duration, Instant}
 };
 
 #[derive(Clone)]
@@ -19,8 +15,7 @@ impl ServerAddr {
     }
 }
 
-const EMPTY_RDB_FILE: &str = "524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2
-";
+const EMPTY_RDB_FILE: &str = "UkVESVMwMDEx+glyZWRpcy12ZXIFNy4yLjD6CnJlZGlzLWJpdHPAQPoFY3RpbWXCbQi8ZfoIdXNlZC1tZW3CsMQQAPoIYW9mLWJhc2XAAP/wbjv+wP9aog==";
 
 #[derive(Clone)]
 pub struct ServerState {
@@ -136,6 +131,7 @@ impl ServerState {
         let _ = stream.read(&mut buf);
         let rdb = String::from_utf8_lossy(&buf);
         println!("Received psync: {}", rdb);
+
     }
 
     /*
