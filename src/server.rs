@@ -203,8 +203,9 @@ impl ServerState {
                         let expiry_time = Instant::now()
                             .checked_add(Duration::from_millis(expiry))
                             .unwrap();
-                        self.db.insert(key.clone(), value);
+                        self.db.insert(key.clone(), value.clone());
                         self.expiry.insert(key.clone(), expiry_time);
+                        self.propagate_set(key.clone(), value.clone(), expiry);
                         RespType::SimpleString("OK".to_string())
                     }
                     _ => RespType::Error("ERR value is not a valid RESP type".to_string()),
@@ -224,7 +225,6 @@ impl ServerState {
         match self.db.get(&key) {
             Some(val) => {
                 println!("Value: {}", val);
-                self.propagate_set(key.clone(), val.clone());
                 RespType::SimpleString(val.clone())
             }
             None => RespType::NullBulkString,
@@ -281,13 +281,15 @@ impl ServerState {
         (format!("${}\r\n", rdb_bytes.len()), rdb_bytes)
     }
 
-    pub fn propagate_set(&self, key: String, value: String) {
+    pub fn propagate_set(&self, key: String, value: String, expiry: u64) {
         let mut slave_servers = self.slave_servers.lock().unwrap();
         for stream in slave_servers.iter_mut() {
             let serial_set: String = RespType::Array(vec![
                 RespType::BulkString("SET".to_string()),
                 RespType::BulkString(key.clone()),
                 RespType::BulkString(value.clone()),
+                RespType::BulkString("PX".to_string()),
+                RespType::BulkString(expiry.to_string()),
             ])
             .to_resp_string();
             let _ = stream.write(serial_set.as_bytes());
