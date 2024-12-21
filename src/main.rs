@@ -52,7 +52,6 @@ fn handle_client(mut stream: TcpStream, srv: &Arc<Mutex<ServerState>>) {
             println!("Adding slave to master server");
             srv.lock().unwrap().retain_slave(stream.try_clone().unwrap());
             added = true;
-            break;
         }
 
         // check if resp needs to do a full resync (check for full resync command)
