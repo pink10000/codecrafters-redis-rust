@@ -16,6 +16,7 @@ use server::{ServerAddr, ServerState};
 const DEFAULT_PORT: u16 = 6379;
 
 fn handle_client(mut stream: TcpStream, srv: &Arc<Mutex<ServerState>>) {
+    let role: String = srv.lock().unwrap().get_role();
     loop {
         let mut buf: [u8; 1024] = [0; 1024];
         let read_res: Result<usize, Error> = stream.read(&mut buf);
@@ -28,7 +29,7 @@ fn handle_client(mut stream: TcpStream, srv: &Arc<Mutex<ServerState>>) {
             Ok(size) => {
                 let command = String::from_utf8_lossy(&buf[..size]);
                 resp = parser::parse_resp(&command).unwrap();
-                println!("Received command: {:?}", resp);
+                println!("{} received command: {:?}", role, resp);
             }
             Err(e) => {
                 eprintln!("Failed to read from stream: {}", e);
