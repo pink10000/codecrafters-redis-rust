@@ -1,6 +1,7 @@
 use crate::parser::RespType;
 use std::{collections::HashMap, time::Duration, time::Instant};
 
+#[derive(Clone)]
 pub struct ServerAddr {
     pub _ip: String,
     pub _port: u16,
@@ -12,12 +13,13 @@ impl ServerAddr {
     }
 }
 
+#[derive(Clone)]
 pub struct ServerState {
     db: HashMap<String, String>,
     expiry: HashMap<String, Instant>,
     replication_id: Option<String>,
     replication_offset: Option<u64>,
-    port: u16,
+    _port: u16,
     pub replica_of: Option<ServerAddr>,
 }
 
@@ -44,7 +46,7 @@ impl ServerState {
         ServerState {
             db: HashMap::new(),
             expiry: HashMap::new(),
-            port: port,
+            _port: port,
             replication_id: repl_id,
             replication_offset: repl_offset,
             replica_of: replica_of,

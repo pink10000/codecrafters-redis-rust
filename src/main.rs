@@ -15,10 +15,9 @@ use server::{ServerAddr, ServerState};
 
 const DEFAULT_PORT: u16 = 6379;
 
-fn handle_replication(srv: &Arc<Mutex<ServerState>>) {
+fn request_replication(srv: ServerState) {
     // srv_state is automatically unlocked here when it goes out of scope
-    let srv_state = srv.lock().unwrap();
-    let replica_of = srv_state.replica_of.as_ref().unwrap();
+    let replica_of = srv.replica_of.as_ref().unwrap();
     let master_ip = replica_of._ip.clone();
     let master_port = replica_of._port;
 
@@ -29,11 +28,6 @@ fn handle_replication(srv: &Arc<Mutex<ServerState>>) {
 }   
 
 fn handle_client(mut stream: TcpStream, srv: &Arc<Mutex<ServerState>>) {
-    let srv_role: String = srv.lock().unwrap().get_role();
-    if srv_role == "master" {
-        handle_replication(srv);
-    }
-
     loop {
         let mut buf: [u8; 1024] = [0; 1024];
         let read_res: Result<usize, Error> = stream.read(&mut buf);
@@ -105,10 +99,19 @@ fn main() {
         idx += 1;
     }
 
-    // server state that is shared between threads
-    let server_state = Arc::new(Mutex::new(ServerState::new(port, replica_of)));
+    let server_state: ServerState = ServerState::new(port, replica_of);
     let listener = TcpListener::bind(format!("127.0.0.1:{}", port)).unwrap();
-
+    
+    // needs to request replication if the server is a slave
+    let srv_role: String = server_state.get_role();
+    println!("Server role: {}", srv_role);
+    if srv_role == "slave" {
+        println!("Requesting replication...");
+        request_replication(server_state.clone());
+    }
+    
+    // server state that is shared between threads
+    let server_state = Arc::new(Mutex::new(server_state.clone()));
     for stream in listener.incoming() {
         println!("Found stream, handling connection:");
         match stream {
