@@ -195,7 +195,8 @@ impl ServerState {
 
         println!("-inserted ({}, {})", key, value);
         if arr.len() == 3 {
-            self.db.insert(key.clone(), value);
+            self.db.insert(key.clone(), value.clone());
+            self.propagate_set(key.clone(), value.clone(), None);
             return RespType::SimpleString("OK".to_string());
         }
         match arr[3].clone() {
@@ -208,7 +209,7 @@ impl ServerState {
                             .unwrap();
                         self.db.insert(key.clone(), value.clone());
                         self.expiry.insert(key.clone(), expiry_time);
-                        self.propagate_set(key.clone(), value.clone(), expiry);
+                        self.propagate_set(key.clone(), value.clone(), Some(expiry));
                         RespType::SimpleString("OK".to_string())
                     }
                     _ => RespType::Error("ERR value is not a valid RESP type".to_string()),
@@ -284,17 +285,22 @@ impl ServerState {
         (format!("${}\r\n", rdb_bytes.len()), rdb_bytes)
     }
 
-    pub fn propagate_set(&self, key: String, value: String, expiry: u64) {
+    pub fn propagate_set(&self, key: String, value: String, expiry: Option<u64>) {
         let mut slave_servers = self.slave_servers.lock().unwrap();
+        let mut cmd: Vec<RespType> = vec![
+            RespType::BulkString("SET".to_string()),
+            RespType::BulkString(key.clone()),
+            RespType::BulkString(value.clone()),
+        ];
+        match expiry {
+            Some(time) => {
+                cmd.push(RespType::BulkString("PX".to_string()));
+                cmd.push(RespType::BulkString(time.to_string()));
+            }
+            None => {}
+        }
         for stream in slave_servers.iter_mut() {
-            let serial_set: String = RespType::Array(vec![
-                RespType::BulkString("SET".to_string()),
-                RespType::BulkString(key.clone()),
-                RespType::BulkString(value.clone()),
-                RespType::BulkString("PX".to_string()),
-                RespType::BulkString(expiry.to_string()),
-            ])
-            .to_resp_string();
+            let serial_set: String = RespType::Array(cmd.clone()).to_resp_string();
             let _ = stream.write(serial_set.as_bytes());
         }
     }
