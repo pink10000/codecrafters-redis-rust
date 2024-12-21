@@ -47,9 +47,9 @@ fn handle_client(mut stream: TcpStream, srv: &Arc<Mutex<ServerState>>) {
         // check if resp needs to do a full resync (check for full resync command)
         // if it does, then send it after the serialized response
         if serialized_response.contains("FULLRESYNC") {
-            let full_resync: String = srv.lock().unwrap().full_resync();
-            let _ = stream.write(full_resync.as_bytes());
-            println!("Sent full resync: {:?}", full_resync);
+            let full_resync: (String, String) = srv.lock().unwrap().full_resync();
+            let _ = stream.write(full_resync.0.as_bytes());
+            let _ = stream.write(full_resync.1.as_bytes());
         }
     }
 }
