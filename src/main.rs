@@ -50,9 +50,9 @@ fn handle_client(mut stream: TcpStream, srv: &Arc<Mutex<ServerState>>) {
         // master should append the slave server connection to slave_servers
         if role == "master" && !added {
             println!("Adding slave to master server");
-            srv.lock().unwrap().retain_slave(stream);
+            srv.lock().unwrap().retain_slave(stream.try_clone().unwrap());
             added = true;
-            break; // exit the loop to avoid using the stream after moving it
+            break;
         }
 
         // check if resp needs to do a full resync (check for full resync command)
