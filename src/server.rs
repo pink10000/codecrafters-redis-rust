@@ -120,11 +120,18 @@ impl ServerState {
         .to_resp_string();
         let _ = stream.write(serial_psync.as_bytes());
 
-        // read psync response
+        // read psync response (replication id and offset)
         let mut buf: [u8; 1024] = [0; 1024];
         let _ = stream.read(&mut buf);
         let replconf = String::from_utf8_lossy(&buf);
         println!("Received psync: {}", replconf);
+
+        // read psync response (rdb file)
+        let mut buf: [u8; 1024] = [0; 1024];
+        let _ = stream.read(&mut buf);
+        let rdb = String::from_utf8_lossy(&buf);
+        println!("Received psync: {}", rdb);
+
     }
 
     /*

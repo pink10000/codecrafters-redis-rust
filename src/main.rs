@@ -50,6 +50,7 @@ fn handle_client(mut stream: TcpStream, srv: &Arc<Mutex<ServerState>>) {
             let full_resync: (String, String) = srv.lock().unwrap().full_resync();
             let _ = stream.write(full_resync.0.as_bytes());
             let _ = stream.write(full_resync.1.as_bytes());
+            println!("Sent full resync: {:?}", full_resync);
         }
     }
 }
