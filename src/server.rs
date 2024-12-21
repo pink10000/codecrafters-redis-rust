@@ -31,7 +31,7 @@ pub struct ServerState {
     port: u16,
     replica_of: Option<ServerAddr>,
 
-    slave_servers: Arc<Mutex<Vec<TcpStream>>>,
+    slave_servers: Vec<ServerAddr>,
 }
 
 /*
@@ -61,7 +61,7 @@ impl ServerState {
             replication_id: repl_id,
             replication_offset: repl_offset,
             replica_of: replica_of,
-            slave_servers: Arc::new(Mutex::new(Vec::new())),
+            slave_servers: Vec::new(),
         }
     }
 
@@ -141,11 +141,19 @@ impl ServerState {
         // println!("Received psync: {}", _rdb);
     }
 
-    /*
-    Main handles accidentally adding a duplicate slave server.
-    */
-    pub fn retain_slave(&mut self, stream: TcpStream) {
-        self.slave_servers.lock().unwrap().push(stream);
+    pub fn retain_slave(&mut self, stream: TcpStream, slave_port: u16) {
+        match stream.peer_addr() {
+            Ok(peer) => {
+                println!(
+                    "--Retaining active slave stream: {}:{}",
+                    peer.ip(),
+                    slave_port
+                );
+                self.slave_servers
+                    .push(ServerAddr::new(peer.ip().to_string(), slave_port));
+            }
+            Err(e) => eprintln!("Failed to retain slave stream: {}", e),
+        }
     }
 
     /*
@@ -260,8 +268,41 @@ impl ServerState {
         }
     }
 
-    fn handle_replconf(&mut self, _arr: Vec<RespType>) -> RespType {
-        RespType::SimpleString("OK".to_string())
+    fn handle_replconf(&mut self, arr: Vec<RespType>) -> RespType {
+        // need to extract the information from the arr
+        match arr[1].clone() {
+            RespType::BulkString(str) => match str.to_lowercase().as_str() {
+                "listening-port" => {
+                    let port: u16 = match arr[2].clone() {
+                        RespType::BulkString(str) => str.parse().unwrap(),
+                        _ => {
+                            return RespType::Error(
+                                "ERR port is not a valid BulkString".to_string(),
+                            )
+                        }
+                    };
+                    println!("-Received slave port: {}", port);
+                    RespType::SimpleString("OK".to_string())
+                }
+                "capa" => {
+                    let capa: String = match arr[2].clone() {
+                        RespType::BulkString(str) => str,
+                        _ => {
+                            return RespType::Error(
+                                "ERR capa is not a valid BulkString".to_string(),
+                            )
+                        }
+                    };
+                    if capa == "psync2" {
+                        RespType::SimpleString("OK".to_string())
+                    } else {
+                        RespType::Error("ERR unknown capability".to_string())
+                    }
+                }
+                _ => RespType::Error("ERR unknown subcommand".to_string()),
+            },
+            _ => RespType::Error("ERR unknown subcommand".to_string()),
+        }
     }
 
     /*
@@ -280,13 +321,12 @@ impl ServerState {
     /*
     Hard coded empty file.
     */
-    pub fn full_resync(&self) -> (String, Vec<u8>) {
+    pub fn full_resync(&mut self) -> (String, Vec<u8>) {
         let rdb_bytes: Vec<u8> = hex::decode(EMPTY_RDB_FILE).unwrap();
         (format!("${}\r\n", rdb_bytes.len()), rdb_bytes)
     }
 
-    pub fn propagate_set(&self, key: String, value: String, expiry: Option<u64>) {
-        let mut slave_servers = self.slave_servers.lock().unwrap();
+    pub fn propagate_set(&mut self, key: String, value: String, expiry: Option<u64>) {
         let mut cmd: Vec<RespType> = vec![
             RespType::BulkString("SET".to_string()),
             RespType::BulkString(key.clone()),
@@ -299,11 +339,10 @@ impl ServerState {
             }
             None => {}
         }
-        for stream in slave_servers.iter_mut() {
-            let serial_set: String = RespType::Array(cmd.clone()).to_resp_string();
-            let _ = stream.write(serial_set.as_bytes());
-            println!("Sent set: {} \t\nto {}", serial_set, stream.peer_addr().unwrap());
-            println!("stream status: {}", stream.peek(&mut [0; 11]).is_ok());
+        for _stream in self.slave_servers.iter_mut() {
+            let mut stream = TcpStream::connect(format!("{}:{}", _stream._ip, _stream._port)).unwrap();
+            let serial_cmd: String = RespType::Array(cmd.clone()).to_resp_string();
+            let _ = stream.write(serial_cmd.as_bytes());
         }
     }
 

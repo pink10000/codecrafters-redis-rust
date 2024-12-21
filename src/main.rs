@@ -10,14 +10,12 @@ use std::{
     thread,
 };
 
-use parser::RespType;
+use parser::{extract_slave_port, RespType};
 use server::{ServerAddr, ServerState};
 
 const DEFAULT_PORT: u16 = 6379;
 
 fn handle_client(mut stream: TcpStream, srv: &Arc<Mutex<ServerState>>) {
-    let role: String = srv.lock().unwrap().get_role();
-    let mut added: bool = false;
     loop {
         let mut buf: [u8; 1024] = [0; 1024];
         let read_res: Result<usize, Error> = stream.read(&mut buf);
@@ -25,7 +23,6 @@ fn handle_client(mut stream: TcpStream, srv: &Arc<Mutex<ServerState>>) {
 
         match read_res {
             Ok(0) => {
-                println!("Connection closed\n");
                 return;
             }
             Ok(size) => {
@@ -41,21 +38,30 @@ fn handle_client(mut stream: TcpStream, srv: &Arc<Mutex<ServerState>>) {
 
         // before it parses the response and and changes the state of the server
         // it needs to lock the server state, so that no other thread can access it
-        let parsed_response: RespType = srv.lock().unwrap().execute_resp(resp);
+        let parsed_response: RespType = srv.lock().unwrap().execute_resp(resp.clone());
         let serialized_response: String = parsed_response.to_resp_string();
         let _ = stream.write(serialized_response.as_bytes());
-        println!("Sent response: {:?}", serialized_response);
+        println!("-Sent response: {:?}", serialized_response);
 
-        // at this point, the handshake process is done
-        // master should append the slave server connection to slave_servers
-        if role == "master" && !added {
-            println!("Adding slave to master server");
-            srv.lock().unwrap().retain_slave(stream.try_clone().unwrap());
-            added = true;
+        // check if resp has a slave of command; if it does, extract it 
+        // this is a bad way to do it.... idk how else to do it
+        match extract_slave_port(&resp.clone()) {
+            Some(slave_port) => {
+                match stream.try_clone() {
+                    Ok(cloned_stream) => {
+                        srv.lock().unwrap().retain_slave(cloned_stream, slave_port);
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to clone stream: {}", e);
+                    }
+                }
+            }
+            None => {}
         }
 
         // check if resp needs to do a full resync (check for full resync command)
         // if it does, then send it after the serialized response
+        // this is a bad way to do it.... idk how else to do it
         if serialized_response.contains("FULLRESYNC") {
             let full_resync: (String, Vec<u8>) = srv.lock().unwrap().full_resync();
             let _ = stream.write(full_resync.0.as_bytes());
@@ -110,10 +116,11 @@ fn main() {
     
     // needs to request replication if the server is a slave
     let srv_role: String = server_state.get_role();
-    println!("Server role: {}", srv_role);
+    println!("Server role: {}\n", srv_role);
     if srv_role == "slave" {
-        println!("Requesting replication...");
+        println!("-Requesting replication...");
         server_state.request_replication();
+        println!("-Replication finished.");
     }
     
     // server state that is shared between threads

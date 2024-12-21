@@ -32,7 +32,7 @@ impl RespType {
                 } else {
                     format!("${}\r\n{}\r\n", str.len(), str)
                 }
-            },
+            }
             RespType::SimpleString(str) => format!("+{}\r\n", str),
             RespType::Error(_) => format!("not implemented yet"),
             RespType::Integer(_) => todo!(),
@@ -169,4 +169,22 @@ where
     }
 
     Ok(RespType::Array(array))
+}
+
+pub fn extract_slave_port(resp: &RespType) -> Option<u16> {
+    if let RespType::Array(vec) = resp {
+        if vec.len() == 3 {
+            match (&vec[0], &vec[1], &vec[2]) {
+                (
+                    RespType::BulkString(cmd),
+                    RespType::BulkString(arg),
+                    RespType::BulkString(port),
+                ) if cmd == "REPLCONF" && arg == "listening-port" => {
+                    return port.parse::<u16>().ok();
+                }
+                _ => {}
+            }
+        }
+    }
+    None
 }
