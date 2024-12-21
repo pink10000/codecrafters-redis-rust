@@ -88,9 +88,10 @@ impl ServerState {
             RespType::BulkString("REPLCONF".to_string()),
             RespType::BulkString("listening-port".to_string()),
             RespType::BulkString(format!("{}", self.port)),
-        ]).to_resp_string();
+        ])
+        .to_resp_string();
         let _ = stream.write(serial_listening_port.as_bytes());
-        
+
         // read replication response
         let mut buf: [u8; 1024] = [0; 1024];
         let _ = stream.read(&mut buf);
@@ -102,7 +103,8 @@ impl ServerState {
             RespType::BulkString("REPLCONF".to_string()),
             RespType::BulkString("capa".to_string()),
             RespType::BulkString("psync2".to_string()),
-        ]).to_resp_string();
+        ])
+        .to_resp_string();
         let _ = stream.write(serial_capa_sync.as_bytes());
 
         // read replication response
@@ -110,6 +112,21 @@ impl ServerState {
         let _ = stream.read(&mut buf);
         let replconf = String::from_utf8_lossy(&buf);
         println!("Received replconf: {}", replconf);
+
+        // send psync
+        let serial_psync: String = RespType::Array(vec![
+            RespType::BulkString("PSYNC".to_string()),
+            RespType::BulkString("?".to_string()),
+            RespType::BulkString("-1".to_string()),
+        ])
+        .to_resp_string();
+        let _ = stream.write(serial_psync.as_bytes());
+
+        // read psync response
+        let mut buf: [u8; 1024] = [0; 1024];
+        let _ = stream.read(&mut buf);
+        let replconf = String::from_utf8_lossy(&buf);
+        println!("Received psync: {}", replconf);
     }
 
     /*
@@ -139,6 +156,7 @@ impl ServerState {
                 "get" => self.handle_get(arr),
                 "info" => self.handle_info(arr),
                 "replconf" => self.handle_replconf(arr),
+                "psync" => self.handle_psync(arr),
                 "command" => RespType::Error("Not implemented".to_string()),
                 _ => RespType::Error("ERR unknown command".to_string()),
             },
@@ -223,6 +241,16 @@ impl ServerState {
 
     fn handle_replconf(&mut self, _arr: Vec<RespType>) -> RespType {
         RespType::SimpleString("OK".to_string())
+    }
+
+    fn handle_psync(&mut self, _arr: Vec<RespType>) -> RespType {
+        // will always, send this, change on first sync call on ?
+        let out: String = format!(
+            "FULLRESYNC {} {}\r\n",
+            self.replication_id.clone().unwrap(),
+            self.replication_offset.clone().unwrap()
+        );
+        RespType::SimpleString(out)
     }
 
     fn check_expiry(&mut self) {
