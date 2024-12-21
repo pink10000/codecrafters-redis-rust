@@ -131,14 +131,14 @@ impl ServerState {
         // read psync response (replication id and offset)
         let mut buf: [u8; 1024] = [0; 1024];
         let _ = stream.read(&mut buf);
-        let replconf = String::from_utf8_lossy(&buf);
-        println!("Received psync: {}", replconf);
+        let _replconf = String::from_utf8_lossy(&buf);
+        // println!("Received psync: {}", _replconf);
 
         // read psync response (rdb file)
         let mut buf: [u8; 1024] = [0; 1024];
         let _ = stream.read(&mut buf);
-        let rdb = String::from_utf8_lossy(&buf);
-        println!("Received psync: {}", rdb);
+        let _rdb = String::from_utf8_lossy(&buf);
+        // println!("Received psync: {}", _rdb);
     }
 
     /*
@@ -302,6 +302,8 @@ impl ServerState {
         for stream in slave_servers.iter_mut() {
             let serial_set: String = RespType::Array(cmd.clone()).to_resp_string();
             let _ = stream.write(serial_set.as_bytes());
+            println!("Sent set: {} \t\nto {}", serial_set, stream.peer_addr().unwrap());
+            println!("stream status: {}", stream.peek(&mut [0; 11]).is_ok());
         }
     }
 
