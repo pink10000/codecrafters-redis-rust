@@ -141,6 +141,9 @@ impl ServerState {
         println!("Received psync: {}", rdb);
     }
 
+    /*
+    Main handles accidentally adding a duplicate slave server.
+    */
     pub fn retain_slave(&mut self, stream: TcpStream) {
         self.slave_servers.lock().unwrap().push(stream);
     }

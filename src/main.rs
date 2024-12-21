@@ -17,6 +17,7 @@ const DEFAULT_PORT: u16 = 6379;
 
 fn handle_client(mut stream: TcpStream, srv: &Arc<Mutex<ServerState>>) {
     let role: String = srv.lock().unwrap().get_role();
+    let mut added: bool = false;
     loop {
         let mut buf: [u8; 1024] = [0; 1024];
         let read_res: Result<usize, Error> = stream.read(&mut buf);
@@ -47,8 +48,9 @@ fn handle_client(mut stream: TcpStream, srv: &Arc<Mutex<ServerState>>) {
 
         // at this point, the handshake process is done
         // master should append the slave server connection to slave_servers
-        if role == "master" {
+        if role == "master" && !added {
             srv.lock().unwrap().retain_slave(stream.try_clone().unwrap());
+            added = true;
         }
 
         // check if resp needs to do a full resync (check for full resync command)
