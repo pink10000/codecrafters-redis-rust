@@ -254,7 +254,7 @@ impl ServerState {
     fn handle_psync(&mut self, _arr: Vec<RespType>) -> RespType {
         // will always send this, change on first sync call on ?
         let out: String = format!(
-            "FULLRESYNC {} {}\r\n",
+            "FULLRESYNC {} {}",
             self.replication_id.clone().unwrap(),
             self.replication_offset.clone().unwrap()
         );
