@@ -1,5 +1,11 @@
 use crate::parser::RespType;
-use std::{collections::HashMap, time::Duration, time::Instant};
+use std::{
+    collections::HashMap,
+    fmt::format,
+    io::{Read, Write},
+    net::TcpStream,
+    time::{Duration, Instant},
+};
 
 #[derive(Clone)]
 pub struct ServerAddr {
@@ -19,8 +25,8 @@ pub struct ServerState {
     expiry: HashMap<String, Instant>,
     replication_id: Option<String>,
     replication_offset: Option<u64>,
-    _port: u16,
-    pub replica_of: Option<ServerAddr>,
+    port: u16,
+    replica_of: Option<ServerAddr>,
 }
 
 /*
@@ -41,12 +47,12 @@ impl ServerState {
             None => {
                 repl_id = Some("8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb".to_string());
                 repl_offset = Some(0);
-            },
+            }
         }
         ServerState {
             db: HashMap::new(),
             expiry: HashMap::new(),
-            _port: port,
+            port: port,
             replication_id: repl_id,
             replication_offset: repl_offset,
             replica_of: replica_of,
@@ -58,6 +64,52 @@ impl ServerState {
             Some(_) => "slave".to_string(),
             None => "master".to_string(),
         }
+    }
+
+    pub fn request_replication(&self) {
+        // srv_state is automatically unlocked here when it goes out of scope
+        let master_ip = self.replica_of.as_ref().unwrap()._ip.clone();
+        let master_port = self.replica_of.as_ref().unwrap()._port;
+
+        // send ping
+        let mut stream = TcpStream::connect(format!("{}:{}", master_ip, master_port)).unwrap();
+        let serial_ping: String =
+            RespType::Array(vec![RespType::BulkString("PING".to_string())]).to_resp_string();
+        let _ = stream.write(serial_ping.as_bytes());
+
+        // read pong
+        let mut buf: [u8; 1024] = [0; 1024];
+        let _ = stream.read(&mut buf);
+        let pong = String::from_utf8_lossy(&buf);
+        println!("Received pong: {}", pong);
+
+        // send replication request
+        let serial_listening_port: String = RespType::Array(vec![
+            RespType::BulkString("REPLCONF".to_string()),
+            RespType::BulkString("listening-port".to_string()),
+            RespType::BulkString(format!("{}", self.port)),
+        ]).to_resp_string();
+        let _ = stream.write(serial_listening_port.as_bytes());
+        
+        // read replication response
+        let mut buf: [u8; 1024] = [0; 1024];
+        let _ = stream.read(&mut buf);
+        let replconf = String::from_utf8_lossy(&buf);
+        println!("Received replconf: {}", replconf);
+
+        // send capabilitiy sync
+        let serial_capa_sync: String = RespType::Array(vec![
+            RespType::BulkString("REPLCONF".to_string()),
+            RespType::BulkString("capa".to_string()),
+            RespType::BulkString("psync2".to_string()),
+        ]).to_resp_string();
+        let _ = stream.write(serial_capa_sync.as_bytes());
+
+        // read replication response
+        let mut buf: [u8; 1024] = [0; 1024];
+        let _ = stream.read(&mut buf);
+        let replconf = String::from_utf8_lossy(&buf);
+        println!("Received replconf: {}", replconf);
     }
 
     /*
@@ -86,6 +138,7 @@ impl ServerState {
                 "set" => self.handle_set(arr),
                 "get" => self.handle_get(arr),
                 "info" => self.handle_info(arr),
+                "replconf" => self.handle_replconf(arr),
                 "command" => RespType::Error("Not implemented".to_string()),
                 _ => RespType::Error("ERR unknown command".to_string()),
             },
@@ -102,7 +155,7 @@ impl ServerState {
             RespType::BulkString(s) => s,
             _ => return RespType::Error("ERR value is not a valid BulkString".to_string()),
         };
-        
+
         println!("-inserted ({}, {})", key, value);
         if arr.len() == 3 {
             self.db.insert(key.clone(), value);
@@ -147,12 +200,18 @@ impl ServerState {
         match arr[1].clone() {
             RespType::BulkString(str) => match str.to_lowercase().as_str() {
                 "replication" => {
-                    let mut output: Vec<String> = Vec::new(); 
+                    let mut output: Vec<String> = Vec::new();
                     let role = self.get_role();
                     output.push(format!("role:{}", role));
                     if role == "master" {
-                        output.push(format!("master_replid:{}", self.replication_id.clone().unwrap()));
-                        output.push(format!("master_repl_offset:{}", self.replication_offset.clone().unwrap()));
+                        output.push(format!(
+                            "master_replid:{}",
+                            self.replication_id.clone().unwrap()
+                        ));
+                        output.push(format!(
+                            "master_repl_offset:{}",
+                            self.replication_offset.clone().unwrap()
+                        ));
                     }
                     RespType::BulkString(output.join("\n"))
                 }
@@ -160,6 +219,10 @@ impl ServerState {
             },
             _ => RespType::Error("ERR unknown subcommand".to_string()),
         }
+    }
+
+    fn handle_replconf(&mut self, _arr: Vec<RespType>) -> RespType {
+        RespType::SimpleString("OK".to_string())
     }
 
     fn check_expiry(&mut self) {

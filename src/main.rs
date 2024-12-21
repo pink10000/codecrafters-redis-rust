@@ -15,18 +15,6 @@ use server::{ServerAddr, ServerState};
 
 const DEFAULT_PORT: u16 = 6379;
 
-fn request_replication(srv: ServerState) {
-    // srv_state is automatically unlocked here when it goes out of scope
-    let replica_of = srv.replica_of.as_ref().unwrap();
-    let master_ip = replica_of._ip.clone();
-    let master_port = replica_of._port;
-
-    // send ping
-    let mut stream = TcpStream::connect(format!("{}:{}", master_ip, master_port)).unwrap();
-    let serialized_ping: String = RespType::Array(vec![RespType::BulkString("PING".to_string())]).to_resp_string();
-    let _ = stream.write(serialized_ping.as_bytes());
-}   
-
 fn handle_client(mut stream: TcpStream, srv: &Arc<Mutex<ServerState>>) {
     loop {
         let mut buf: [u8; 1024] = [0; 1024];
@@ -107,7 +95,7 @@ fn main() {
     println!("Server role: {}", srv_role);
     if srv_role == "slave" {
         println!("Requesting replication...");
-        request_replication(server_state.clone());
+        server_state.request_replication();
     }
     
     // server state that is shared between threads
