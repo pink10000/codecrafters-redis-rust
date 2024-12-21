@@ -126,7 +126,7 @@ fn main() {
     // server state that is shared between threads
     let server_state = Arc::new(Mutex::new(server_state.clone()));
     for stream in listener.incoming() {
-        println!("Found stream, handling connection:");
+        println!("\nFound stream, handling connection:");
         match stream {
             Ok(stream) => {
                 thread::spawn({
