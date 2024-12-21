@@ -34,7 +34,7 @@ impl RespType {
                 }
             },
             RespType::SimpleString(str) => format!("+{}\r\n", str),
-            RespType::Error(_) => todo!(),
+            RespType::Error(_) => format!("not implemented yet"),
             RespType::Integer(_) => todo!(),
             RespType::NullBulkString => "$-1\r\n".to_string(),
             RespType::NullArray => "*-1\r\n".to_string(),
@@ -60,7 +60,7 @@ where
         _ => {
             let rem: String = chars.collect();
             println!("chars: {:?}", rem);
-            Err("Invalid RESP data type".to_string())
+            Err("Invalid RESP type".to_string())
         }
     }
 }

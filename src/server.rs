@@ -65,6 +65,7 @@ impl ServerState {
                 "set" => self.handle_set(arr),
                 "get" => self.handle_get(arr),
                 "info" => self.handle_info(arr),
+                "command" => RespType::Error("Not implemented".to_string()),
                 _ => RespType::Error("ERR unknown command".to_string()),
             },
             _ => RespType::Error("ERR unknown command".to_string()),

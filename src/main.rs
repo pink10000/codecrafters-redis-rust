@@ -35,16 +35,17 @@ fn handle_client(mut stream: TcpStream, srv: &Arc<Mutex<ServerState>>) {
 
         // before it parses the response and and changes the state of the server
         // it needs to lock the server state, so that no other thread can access it
-        let parsed_response: RespType  = srv.lock().unwrap().execute_resp(resp);
+        let parsed_response: RespType = srv.lock().unwrap().execute_resp(resp);
         let serialized_response: String = parsed_response.to_resp_string();
         let _ = stream.write(serialized_response.as_bytes());
+        println!("Sent response: {:?}", serialized_response);
     }
 }
 
 fn main() {
     let mut port: u16 = DEFAULT_PORT;
     let mut replica_of: Option<ServerAddr> = None;
-    
+
     let args: Vec<String> = env::args().collect();
 
     let mut idx: usize = 1; // needs to be one to skip the binary call
@@ -59,11 +60,11 @@ fn main() {
                     eprintln!("Port number not provided");
                     return;
                 }
-            },
+            }
             "--replicaof" => {
                 if args.len() > (idx as usize) + 1 {
                     // ip + port passed a singular string
-                    let ip_port = args[(idx + 1) as usize].clone();    
+                    let ip_port = args[(idx + 1) as usize].clone();
                     let mut split = ip_port.split(" ");
                     let ip: String = split.next().unwrap().to_string();
                     let port: u16 = split.next().unwrap().parse::<u16>().unwrap();
@@ -73,7 +74,7 @@ fn main() {
                     eprintln!("Replicaof requires ip and port");
                     return;
                 }
-            },
+            }
             _ => {
                 eprintln!("Unknown flag: {}", arg);
                 return;
@@ -89,11 +90,14 @@ fn main() {
     for stream in listener.incoming() {
         println!("Found stream, handling connection:");
         match stream {
-            Ok(mut _stream) => {
-                println!("accepted new connection");
+            Ok(stream) => {
+                thread::spawn({
                     let srv = Arc::clone(&server_state);
-                    handle_client(_stream, &srv);
-                }
+                    move || {
+                        handle_client(stream, &srv);
+                    }
+                });
+            }
             Err(e) => {
                 println!("error: {}", e);
             }
