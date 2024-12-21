@@ -256,7 +256,7 @@ impl ServerState {
 
     pub fn full_resync(&self) -> String {
         format!(
-            "${}\r\n{}\r\n",
+            "${}\r\n{}",
             EMPTY_RDB_FILE.len(),
             EMPTY_RDB_FILE.to_string()
         )
