@@ -23,6 +23,7 @@ fn handle_client(mut stream: TcpStream, srv: &Arc<Mutex<ServerState>>) {
 
         match read_res {
             Ok(0) => {
+                println!("Connection closed\n");
                 return;
             }
             Ok(size) => {

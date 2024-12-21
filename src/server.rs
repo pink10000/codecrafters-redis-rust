@@ -82,17 +82,18 @@ impl ServerState {
 
         match arr[3].clone() {
             RespType::BulkString(str) => match str.to_lowercase().as_str() {
-                "px" => {
-                    let expiry: String = arr[4].clone().to_resp_string();
-                    let expiry: u64 = expiry.parse().unwrap();
-                    let expiry_time = Instant::now()
-                        .checked_add(Duration::from_millis(expiry))
-                        .unwrap();
-
-                    self.db.insert(key.clone(), value);
-                    self.expiry.insert(key.clone(), expiry_time);
-                    RespType::SimpleString("OK".to_string())
-                }
+                "px" => match arr[4].clone() {
+                    RespType::BulkString(str) => {
+                        let expiry: u64 = str.parse().unwrap();
+                        let expiry_time = Instant::now()
+                            .checked_add(Duration::from_millis(expiry))
+                            .unwrap();
+                        self.db.insert(key.clone(), value);
+                        self.expiry.insert(key.clone(), expiry_time);
+                        RespType::SimpleString("OK".to_string())
+                    }
+                    _ => RespType::Error("ERR value is not a valid RESP type".to_string()),
+                },
                 _ => RespType::Error("ERR value is not a valid RESP type".to_string()),
             },
             _ => RespType::Error("ERR value is not a valid RESP type".to_string()),
@@ -114,7 +115,7 @@ impl ServerState {
                 "replication" => {
                     let role = self.get_role();
                     RespType::BulkString(format!("role:{}", role))
-                },
+                }
                 _ => RespType::Error("ERR unknown subcommand".to_string()),
             },
             _ => RespType::Error("ERR unknown subcommand".to_string()),
