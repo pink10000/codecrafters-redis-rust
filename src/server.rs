@@ -1,6 +1,11 @@
 use crate::parser::RespType;
 use std::{
-    collections::HashMap, fmt::format, io::{Read, Write}, net::TcpStream, time::{Duration, Instant}
+    collections::HashMap,
+    fmt::format,
+    io::{Read, Write},
+    net::TcpStream,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
 };
 
 #[derive(Clone)]
@@ -25,6 +30,8 @@ pub struct ServerState {
     replication_offset: Option<u64>,
     port: u16,
     replica_of: Option<ServerAddr>,
+
+    slave_servers: Arc<Mutex<Vec<TcpStream>>>,
 }
 
 /*
@@ -54,6 +61,7 @@ impl ServerState {
             replication_id: repl_id,
             replication_offset: repl_offset,
             replica_of: replica_of,
+            slave_servers: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -131,7 +139,10 @@ impl ServerState {
         let _ = stream.read(&mut buf);
         let rdb = String::from_utf8_lossy(&buf);
         println!("Received psync: {}", rdb);
+    }
 
+    pub fn retain_slave(&mut self, stream: TcpStream) {
+        self.slave_servers.lock().unwrap().push(stream);
     }
 
     /*
@@ -213,6 +224,7 @@ impl ServerState {
         match self.db.get(&key) {
             Some(val) => {
                 println!("Value: {}", val);
+                self.propagate_set(key.clone(), val.clone());
                 RespType::SimpleString(val.clone())
             }
             None => RespType::NullBulkString,
@@ -261,9 +273,25 @@ impl ServerState {
         RespType::SimpleString(out)
     }
 
-    pub fn full_resync(&self) -> (String, Vec<u8>)  {
+    /*
+    Hard coded empty file.
+    */
+    pub fn full_resync(&self) -> (String, Vec<u8>) {
         let rdb_bytes: Vec<u8> = hex::decode(EMPTY_RDB_FILE).unwrap();
         (format!("${}\r\n", rdb_bytes.len()), rdb_bytes)
+    }
+
+    pub fn propagate_set(&self, key: String, value: String) {
+        let mut slave_servers = self.slave_servers.lock().unwrap();
+        for stream in slave_servers.iter_mut() {
+            let serial_set: String = RespType::Array(vec![
+                RespType::BulkString("SET".to_string()),
+                RespType::BulkString(key.clone()),
+                RespType::BulkString(value.clone()),
+            ])
+            .to_resp_string();
+            let _ = stream.write(serial_set.as_bytes());
+        }
     }
 
     fn check_expiry(&mut self) {
