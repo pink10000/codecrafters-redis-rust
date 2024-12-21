@@ -1,10 +1,6 @@
 use crate::parser::RespType;
 use std::{
-    collections::HashMap,
-    fmt::format,
-    io::{Read, Write},
-    net::TcpStream,
-    time::{Duration, Instant},
+    collections::HashMap, fmt::format, io::{Read, Write}, net::TcpStream, time::{Duration, Instant}
 };
 
 #[derive(Clone)]
@@ -18,6 +14,8 @@ impl ServerAddr {
         Self { _ip, _port }
     }
 }
+
+const EMPTY_RDB_FILE: &str = "UkVESVMwMDEx+glyZWRpcy12ZXIFNy4yLjD6CnJlZGlzLWJpdHPAQPoFY3RpbWXCbQi8ZfoIdXNlZC1tZW3CsMQQAPoIYW9mLWJhc2XAAP/wbjv+wP9aog==";
 
 #[derive(Clone)]
 pub struct ServerState {
@@ -243,14 +241,25 @@ impl ServerState {
         RespType::SimpleString("OK".to_string())
     }
 
+    /*
+    Sync the data from the master to the slave
+     */
     fn handle_psync(&mut self, _arr: Vec<RespType>) -> RespType {
-        // will always, send this, change on first sync call on ?
+        // will always send this, change on first sync call on ?
         let out: String = format!(
             "FULLRESYNC {} {}\r\n",
             self.replication_id.clone().unwrap(),
             self.replication_offset.clone().unwrap()
         );
         RespType::SimpleString(out)
+    }
+
+    pub fn full_resync(&self) -> String {
+        format!(
+            "${}\r\n{}\r\n",
+            EMPTY_RDB_FILE.len(),
+            EMPTY_RDB_FILE.to_string()
+        )
     }
 
     fn check_expiry(&mut self) {
