@@ -2,8 +2,8 @@ use crate::parser::RespType;
 use std::{collections::HashMap, time::Duration, time::Instant};
 
 pub struct ServerAddr {
-    _ip: String,
-    _port: u16,
+    pub _ip: String,
+    pub _port: u16,
 }
 
 impl ServerAddr {
@@ -17,8 +17,8 @@ pub struct ServerState {
     expiry: HashMap<String, Instant>,
     replication_id: Option<String>,
     replication_offset: Option<u64>,
-    _port: u16,
-    _replica_of: Option<ServerAddr>,
+    port: u16,
+    pub replica_of: Option<ServerAddr>,
 }
 
 /*
@@ -44,15 +44,15 @@ impl ServerState {
         ServerState {
             db: HashMap::new(),
             expiry: HashMap::new(),
-            _port: port,
+            port: port,
             replication_id: repl_id,
             replication_offset: repl_offset,
-            _replica_of: replica_of,
+            replica_of: replica_of,
         }
     }
 
     pub fn get_role(&self) -> String {
-        match self._replica_of {
+        match self.replica_of {
             Some(_) => "slave".to_string(),
             None => "master".to_string(),
         }
