@@ -261,8 +261,8 @@ impl ServerState {
         RespType::SimpleString(out)
     }
 
-    pub fn full_resync(&self) -> String  {
-        format!("${}\r\n{}", EMPTY_RDB_FILE.len(), EMPTY_RDB_FILE)
+    pub fn full_resync(&self) -> (String, String)  {
+        (format!("${}\r\n", EMPTY_RDB_FILE.len()), EMPTY_RDB_FILE.to_string())
     }
 
     fn check_expiry(&mut self) {
