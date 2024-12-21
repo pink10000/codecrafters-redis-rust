@@ -16,12 +16,15 @@ use server::{ServerAddr, ServerState};
 const DEFAULT_PORT: u16 = 6379;
 
 fn handle_client(mut stream: TcpStream, srv: &Arc<Mutex<ServerState>>) {
-    while stream.peek(&mut [0; 1]).is_ok() {
+    loop {
         let mut buf: [u8; 1024] = [0; 1024];
         let read_res: Result<usize, Error> = stream.read(&mut buf);
         let resp: parser::RespType;
 
         match read_res {
+            Ok(0) => {
+                return;
+            }
             Ok(size) => {
                 let command = String::from_utf8_lossy(&buf[..size]);
                 resp = parser::parse_resp(&command).unwrap();
