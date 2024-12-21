@@ -56,9 +56,11 @@ impl ServerState {
         }
     }
 
+    /*
+    Command is always the first element in the array.
+     */
     fn execute_array(&mut self, arr: Vec<RespType>) -> RespType {
-        let cmd = arr[0].clone();
-        match cmd {
+        match arr[0].clone() {
             RespType::BulkString(str) => match str.to_lowercase().as_str() {
                 "ping" => RespType::SimpleString("PONG".to_string()),
                 "echo" => self.execute_resp(arr[1].clone()),
@@ -73,13 +75,11 @@ impl ServerState {
     }
 
     fn handle_set(&mut self, arr: Vec<RespType>) -> RespType {
-        let key: RespType = self.execute_resp(arr[1].clone());
-        let key: String = match key {
+        let key: String = match self.execute_resp(arr[1].clone()) {
             RespType::BulkString(s) => s,
             _ => return RespType::Error("ERR key is not a valid BulkString".to_string()),
         };
-        let value: RespType = self.execute_resp(arr[2].clone());
-        let value: String = match value {
+        let value: String = match self.execute_resp(arr[2].clone()) {
             RespType::BulkString(s) => s,
             _ => return RespType::Error("ERR value is not a valid BulkString".to_string()),
         };
@@ -110,8 +110,7 @@ impl ServerState {
     }
 
     fn handle_get(&mut self, arr: Vec<RespType>) -> RespType {
-        let key: RespType = self.execute_resp(arr[1].clone());
-        let key: String = match key {
+        let key: String = match self.execute_resp(arr[1].clone()) {
             RespType::BulkString(s) => s,
             _ => return RespType::Error("ERR key is not a valid BulkString".to_string()),
         };
