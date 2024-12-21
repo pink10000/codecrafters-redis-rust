@@ -261,9 +261,8 @@ impl ServerState {
         RespType::SimpleString(out)
     }
 
-    pub fn full_resync(&self) -> (String, String) {
-        let len: String = format!("${}\r\n", EMPTY_RDB_FILE.len());
-        (len, EMPTY_RDB_FILE.to_string())
+    pub fn full_resync(&self) -> String  {
+        format!("${}\r\n{}", EMPTY_RDB_FILE.len(), EMPTY_RDB_FILE)
     }
 
     fn check_expiry(&mut self) {
