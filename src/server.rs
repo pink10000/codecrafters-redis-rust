@@ -73,13 +73,22 @@ impl ServerState {
     }
 
     fn handle_set(&mut self, arr: Vec<RespType>) -> RespType {
-        let key = self.execute_resp(arr[1].clone()).to_resp_string();
-        let value = self.execute_resp(arr[2].clone()).to_resp_string();
+        let key: RespType = self.execute_resp(arr[1].clone());
+        let key: String = match key {
+            RespType::BulkString(s) => s,
+            _ => return RespType::Error("ERR key is not a valid BulkString".to_string()),
+        };
+        let value: RespType = self.execute_resp(arr[2].clone());
+        let value: String = match value {
+            RespType::BulkString(s) => s,
+            _ => return RespType::Error("ERR value is not a valid BulkString".to_string()),
+        };
+        
+        println!("-inserted ({}, {})", key, value);
         if arr.len() == 3 {
             self.db.insert(key.clone(), value);
             return RespType::SimpleString("OK".to_string());
         }
-
         match arr[3].clone() {
             RespType::BulkString(str) => match str.to_lowercase().as_str() {
                 "px" => match arr[4].clone() {
@@ -101,10 +110,17 @@ impl ServerState {
     }
 
     fn handle_get(&mut self, arr: Vec<RespType>) -> RespType {
-        let key = self.execute_resp(arr[1].clone()).to_resp_string();
+        let key: RespType = self.execute_resp(arr[1].clone());
+        let key: String = match key {
+            RespType::BulkString(s) => s,
+            _ => return RespType::Error("ERR key is not a valid BulkString".to_string()),
+        };
         self.check_expiry();
         match self.db.get(&key) {
-            Some(val) => RespType::BulkString(val.clone()),
+            Some(val) => {
+                println!("Value: {}", val);
+                RespType::SimpleString(val.clone())
+            }
             None => RespType::NullBulkString,
         }
     }
