@@ -15,6 +15,8 @@ impl ServerAddr {
 pub struct ServerState {
     db: HashMap<String, String>,
     expiry: HashMap<String, Instant>,
+    replication_id: Option<String>,
+    replication_offset: Option<u64>,
     _port: u16,
     _replica_of: Option<ServerAddr>,
 }
@@ -23,13 +25,28 @@ pub struct ServerState {
 Data structure for the server state.
 - db: HashMap<String, String> to store key-value pairs.
 - expiry: HashMap<String, Instant> to store expiry time for keys.
+- replication_id: Option<String> to store the replication id. This
+  value is Some if the server is a master. Otherwise, it is None.
+- replication_offset: Option<String> to store the replication. Thus
+  value is Some if the server is a master. Otherwise, it is None.
 */
 impl ServerState {
     pub fn new(port: u16, replica_of: Option<ServerAddr>) -> Self {
+        let mut repl_id: Option<String> = None;
+        let mut repl_offset: Option<u64> = None;
+        match replica_of {
+            Some(_) => {}
+            None => {
+                repl_id = Some("8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb".to_string());
+                repl_offset = Some(0);
+            },
+        }
         ServerState {
             db: HashMap::new(),
             expiry: HashMap::new(),
             _port: port,
+            replication_id: repl_id,
+            replication_offset: repl_offset,
             _replica_of: replica_of,
         }
     }
@@ -128,8 +145,14 @@ impl ServerState {
         match arr[1].clone() {
             RespType::BulkString(str) => match str.to_lowercase().as_str() {
                 "replication" => {
+                    let mut output: Vec<String> = Vec::new(); 
                     let role = self.get_role();
-                    RespType::BulkString(format!("role:{}", role))
+                    output.push(format!("role:{}", role));
+                    if role == "master" {
+                        output.push(format!("master_replid:{}", self.replication_id.clone().unwrap()));
+                        output.push(format!("master_repl_offset:{}", self.replication_offset.clone().unwrap()));
+                    }
+                    RespType::BulkString(output.join("\n"))
                 }
                 _ => RespType::Error("ERR unknown subcommand".to_string()),
             },
