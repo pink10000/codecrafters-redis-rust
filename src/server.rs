@@ -230,15 +230,15 @@ impl ServerState {
                     }
                 },
                 "getack" => {
-                    let offset: u64 = match arr[2].clone() {
-                        RespType::BulkString(str) => str.parse().unwrap(),
-                        _ => {
-                            return RespType::Error(
-                                "ERR offset is not a valid BulkString".to_string(),
-                            )
-                        }
-                    };
-                    self.replication_offset = Some(offset);
+                    // let offset: u64 = match arr[2].clone() {
+                    //     RespType::BulkString(str) => str.parse().unwrap(),
+                    //     _ => {
+                    //         return RespType::Error(
+                    //             "ERR offset is not a valid BulkString".to_string(),
+                    //         )
+                    //     }
+                    // };
+                    // self.replication_offset = Some(offset);
                     RespType::Array(vec![
                         RespType::BulkString("REPLCONF".to_string()),
                         RespType::BulkString("ACK".to_string()),
