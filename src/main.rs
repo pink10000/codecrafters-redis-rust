@@ -20,6 +20,7 @@ const DEFAULT_PORT: u16 = 6379;
 fn handle_client(mut stream: TcpStream, srv: &Arc<Mutex<ServerState>>, role: Role) {
     loop {
         let mut buf: [u8; 1024] = [0; 1024];
+        // Read from the client, no lock held
         let read_res: Result<usize, Error> = stream.read(&mut buf);
         let msg: parser::RespType;
 
@@ -28,27 +29,42 @@ fn handle_client(mut stream: TcpStream, srv: &Arc<Mutex<ServerState>>, role: Rol
             Err(_) => return,
             Ok(size) => {
                 let command = String::from_utf8_lossy(&buf[..size]);
-                msg = parser::parse_resp(&command).unwrap();
-                println!("{} received command: {:?}", role, msg);
+                match parse_resp(&command) {
+                    Ok(parsed) => {
+                        println!("{} received command: {:?}", role, parsed);
+                        msg = parsed;
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to parse client command: {}", e);
+                        return;
+                    }
+                }
             }
         }
 
-        // before it parses the response and and changes the state of the server
-        // it needs to lock the server state, so that no other thread can access it
-        // this scope is NECESSARY to ENSURE the lock is released.
+        // EDIT: Combine lock usage so we only lock/unlock once
         {
-            srv.lock().unwrap().update_replication_offset(msg.clone());
-            let parsed_response: RespType = srv.lock().unwrap().execute_resp(msg.clone());
-            let serialized_response: String = parsed_response.to_resp_string();
-            let _ = stream.write(serialized_response.as_bytes());
+            let mut guard = srv.lock().unwrap();
+
+            // Update replication offset
+            guard.update_replication_offset(msg.clone());
+
+            // Execute the command
+            let parsed_response: RespType = guard.execute_resp(msg.clone());
+            let serialized_response = parsed_response.to_resp_string();
+
+            // Send response
+            if let Err(e) = stream.write(serialized_response.as_bytes()) {
+                eprintln!("Failed writing response to client: {}", e);
+                return;
+            }
             println!("-Sent response: {:?}", serialized_response);
 
-            // check if resp has a slave of command; if it does, extract it
-            // this is a bad way to do it.... idk how else to do it
-            if parse_retain_cmd(&msg.clone()) {
+            // If it's REPLCONF listening-port, store the connection
+            if parse_retain_cmd(&msg) {
                 match stream.try_clone() {
                     Ok(cloned_stream) => {
-                        srv.lock().unwrap().retain_slave(cloned_stream);
+                        guard.retain_slave(cloned_stream);
                     }
                     Err(e) => {
                         eprintln!("Failed to clone stream: {}", e);
@@ -56,119 +72,133 @@ fn handle_client(mut stream: TcpStream, srv: &Arc<Mutex<ServerState>>, role: Rol
                 }
             }
 
-            // check if resp needs to do a full resync (check for full resync command)
-            // if it does, then send it after the serialized response
-            // this is a bad way to do it.... idk how else to do it
+            // If we returned a FULLRESYNC line, also send the RDB
             if serialized_response.contains("FULLRESYNC") {
-                let full_resync: (String, Vec<u8>) = srv.lock().unwrap().full_resync();
-                let _ = stream.write(full_resync.0.as_bytes());
-                let _ = stream.write(full_resync.1.as_slice());
+                let (header, rdb) = guard.full_resync();
+                let _ = stream.write(header.as_bytes());
+                let _ = stream.write(&rdb);
             }
-        }
+        } // lock is released here
     }
 }
 
+// EDIT: Removed reading the RDB bytes inside request_replication().
+//       Instead, we directly call continuous_replication() after the handshake.
 fn request_replication(
     server_state: Arc<Mutex<ServerState>>,
     self_port: u16,
     master_ip: String,
     master_port: u16,
 ) {
-    // send ping
     let mut stream = TcpStream::connect(format!("{}:{}", master_ip, master_port)).unwrap();
-    let serial_ping: String =
-        RespType::Array(vec![RespType::BulkString("PING".to_string())]).to_resp_string();
+
+    // Send PING
+    let serial_ping = RespType::Array(vec![RespType::BulkString("PING".into())])
+        .to_resp_string();
     let _ = stream.write(serial_ping.as_bytes());
 
-    // read pong
-    let mut buf: [u8; 1024] = [0; 1024];
+    // Read PONG
+    let mut buf = [0u8; 1024];
     let _ = stream.read(&mut buf);
     let pong = String::from_utf8_lossy(&buf);
-    print!(" Received pong: {}", pong);
+    println!(" Received pong: {}", pong);
 
-    // send replication request
-    let serial_listening_port: String = RespType::Array(vec![
-        RespType::BulkString("REPLCONF".to_string()),
-        RespType::BulkString("listening-port".to_string()),
+    // REPLCONF listening-port
+    let serial_listening_port = RespType::Array(vec![
+        RespType::BulkString("REPLCONF".into()),
+        RespType::BulkString("listening-port".into()),
         RespType::BulkString(format!("{}", self_port)),
     ])
     .to_resp_string();
     let _ = stream.write(serial_listening_port.as_bytes());
 
-    // read replication response
-    let mut buf: [u8; 1024] = [0; 1024];
+    // Read replication response
+    let mut buf = [0u8; 1024];
     let _ = stream.read(&mut buf);
     let replconf = String::from_utf8_lossy(&buf);
     print!(" Received replconf: {}", replconf);
 
-    // send capabilitiy sync
-    let serial_capa_sync: String = RespType::Array(vec![
-        RespType::BulkString("REPLCONF".to_string()),
-        RespType::BulkString("capa".to_string()),
-        RespType::BulkString("psync2".to_string()),
+    // REPLCONF capa psync2
+    let serial_capa_sync = RespType::Array(vec![
+        RespType::BulkString("REPLCONF".into()),
+        RespType::BulkString("capa".into()),
+        RespType::BulkString("psync2".into()),
     ])
     .to_resp_string();
     let _ = stream.write(serial_capa_sync.as_bytes());
 
-    // read replication response
-    let mut buf: [u8; 1024] = [0; 1024];
+    // Read replication response
+    let mut buf = [0u8; 1024];
     let _ = stream.read(&mut buf);
     let replconf = String::from_utf8_lossy(&buf);
     print!(" Received replconf: {}", replconf);
 
-    // send psync
-    let serial_psync: String = RespType::Array(vec![
-        RespType::BulkString("PSYNC".to_string()),
-        RespType::BulkString("?".to_string()),
-        RespType::BulkString("-1".to_string()),
+    // PSYNC ? -1
+    let serial_psync = RespType::Array(vec![
+        RespType::BulkString("PSYNC".into()),
+        RespType::BulkString("?".into()),
+        RespType::BulkString("-1".into()),
     ])
     .to_resp_string();
     let _ = stream.write(serial_psync.as_bytes());
 
-    // read psync response (replication id and offset)
-    let mut buf: [u8; 1024] = [0; 1024];
+    // Read psync response (FULLRESYNC + offset line)
+    let mut buf = [0u8; 1024];
     let _ = stream.read(&mut buf);
-    let _replconf = String::from_utf8_lossy(&buf);
+    // We won't parse it strictly here, just ignore or log
+    let _psync_reply = String::from_utf8_lossy(&buf);
 
-    // read psync response (rdb file)
-    let mut buf: [u8; 1024] = [0; 1024];
-    let _ = stream.read(&mut buf);
-    let _rdb = &buf;
+    // EDIT: DO NOT read the RDB here in a single call. Instead, let continuous_replication() read everything.
     println!(" Received rdb: (OUTPUT OMITTED)\n");
 
+    // Now do the loop that continuously reads
     continuous_replication(server_state, stream);
 }
 
 fn continuous_replication(server_state: Arc<Mutex<ServerState>>, mut stream: TcpStream) {
-    // server needs to stay alive to handle replications
-    // minimizes lock contention
     loop {
         let mut buf = [0u8; 1024];
-        let msg: RespType = match stream.read(&mut buf) {
-            Ok(0) => return,
-            Ok(size) => {
-                // parse the incoming RESP command
-                let command = String::from_utf8_lossy(&buf[..size]);
-                match parse_resp(&command) {
-                    Ok(r) => {
-                        println!(" slave received command: {:?}", r);
-                        r
-                    }
-                    Err(e) => {
-                        eprintln!(" error parsing replication RESP: {:?}", e);
-                        return;
+        let n = match stream.read(&mut buf) {
+            Ok(0) => {
+                println!(" Master closed the connection. Stopping replication loop.");
+                return;
+            }
+            Ok(size) => size,
+            Err(e) => {
+                eprintln!("Error reading from master: {}", e);
+                return;
+            }
+        };
+
+        // Parse the incoming data
+        let command_str = String::from_utf8_lossy(&buf[..n]);
+        match parse_resp(&command_str) {
+            Ok(msg) => {
+                println!(" slave received command: {:?}", msg);
+
+                // EDIT: Single lock scope
+                {
+                    let mut guard = server_state.lock().unwrap();
+                    guard.update_replication_offset(msg.clone());
+                    let resp = guard.execute_resp(msg.clone());
+
+                    // Possibly respond if we see "ACK"
+                    let serialized_resp = resp.to_resp_string();
+                    println!(" slave sent response: {:?}", serialized_resp);
+                    if serialized_resp.contains("ACK") {
+                        // If you want to only respond if it's REPLCONF GETACK, do that check
+                        if let Err(e) = stream.write_all(serialized_resp.as_bytes()) {
+                            eprintln!("Error sending ack to master: {}", e);
+                            return;
+                        }
                     }
                 }
             }
-            Err(_) => return,
-        };
-        server_state.lock().unwrap().update_replication_offset(msg.clone());
-        let resp: RespType = server_state.lock().unwrap().execute_resp(msg.clone());
-        println!(" slave sent response: {:?}", resp.to_resp_string());
-        if resp.to_resp_string().contains("ACK") {
-            let _ = stream.write(resp.to_resp_string().as_bytes());
+            Err(e) => {
+                eprintln!(" error parsing replication RESP: {:?}", e);
+                return;
+            }
         }
-        
     }
 }
 
@@ -177,14 +207,14 @@ fn main() {
     let mut replica_of: Option<ServerAddr> = None;
 
     let args: Vec<String> = env::args().collect();
+    let mut idx: usize = 1; // skip the binary name
 
-    let mut idx: usize = 1; // needs to be one to skip the binary call
     while idx < args.len() {
-        let arg = &args[idx as usize];
+        let arg = &args[idx];
         match arg.as_str() {
             "--port" => {
-                if args.len() > (idx as usize) + 1 {
-                    port = args[(idx + 1) as usize].parse::<u16>().unwrap();
+                if args.len() > idx + 1 {
+                    port = args[idx + 1].parse::<u16>().unwrap();
                     idx += 1;
                 } else {
                     eprintln!("Port number not provided");
@@ -192,13 +222,12 @@ fn main() {
                 }
             }
             "--replicaof" => {
-                if args.len() > (idx as usize) + 1 {
-                    // ip + port passed a singular string
-                    let ip_port = args[(idx + 1) as usize].clone();
-                    let mut split = ip_port.split(" ");
-                    let ip: String = split.next().unwrap().to_string();
-                    let port: u16 = split.next().unwrap().parse::<u16>().unwrap();
-                    replica_of = Some(ServerAddr::new(ip, port));
+                if args.len() > idx + 1 {
+                    let ip_port = args[idx + 1].clone();
+                    let mut split = ip_port.split(' ');
+                    let ip = split.next().unwrap().to_string();
+                    let prt = split.next().unwrap().parse::<u16>().unwrap();
+                    replica_of = Some(ServerAddr::new(ip, prt));
                     idx += 2;
                 } else {
                     eprintln!("Replicaof requires ip and port");
@@ -213,38 +242,37 @@ fn main() {
         idx += 1;
     }
 
-    let srv = ServerState::new(port, replica_of);
-    let server_state = Arc::new(Mutex::new(srv));
+    // Build server state
+    let state = ServerState::new(port, replica_of);
+    let server_state = Arc::new(Mutex::new(state));
     let listener = TcpListener::bind(format!("127.0.0.1:{}", port)).unwrap();
 
-    // needs to request replication if the server is a slave
-    let srv_role: Role = server_state.lock().unwrap().get_role();
+    // If we are a slave, spawn the replication thread
+    let srv_role = server_state.lock().unwrap().get_role();
     println!("Server role: {:?}\n", srv_role);
 
-    // if the server is a slave, then request continuous replication
     if srv_role == Role::Slave {
         println!("----- Requesting replication...");
-        let server_state_clone = Arc::clone(&server_state);
-        let replica_of = server_state
+        let clone_for_repl = Arc::clone(&server_state);
+        let rep_of = clone_for_repl
             .lock()
             .unwrap()
             .get_replica_of()
-            .clone()
-            .unwrap();
+            .expect("we are a slave, so must have a replica_of");
         std::thread::spawn(move || {
-            request_replication(server_state_clone, port, replica_of._ip, replica_of._port);
+            request_replication(clone_for_repl, port, rep_of._ip, rep_of._port);
             println!("-No longer replicating from master.");
         });
     }
 
-    // server state that is shared between threads
-    for stream in listener.incoming() {
+    // Accept local client connections
+    for incoming in listener.incoming() {
         println!("\nFound stream, handling connection:");
-        match stream {
+        match incoming {
             Ok(stream) => {
                 let srv_clone = Arc::clone(&server_state);
-                let srv_role_clone = srv_role.clone();
-                thread::spawn(move || handle_client(stream, &srv_clone, srv_role_clone));
+                let r_clone = srv_role.clone();
+                thread::spawn(move || handle_client(stream, &srv_clone, r_clone));
             }
             Err(e) => eprintln!("error: {}", e),
         }
