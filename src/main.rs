@@ -143,7 +143,7 @@ fn continuous_replication(server_state: Arc<Mutex<ServerState>>, mut stream: Tcp
     // minimizes lock contention
     loop {
         let mut buf = [0u8; 1024];
-        let resp: RespType = match stream.read(&mut buf) {
+        let msg: RespType = match stream.read(&mut buf) {
             Ok(0) => break,
             Ok(size) => {
                 // parse the incoming RESP command
@@ -161,7 +161,7 @@ fn continuous_replication(server_state: Arc<Mutex<ServerState>>, mut stream: Tcp
             }
             Err(_) => return,
         };
-        let _ = server_state.lock().unwrap().execute_resp(resp.clone());
+        let resp = server_state.lock().unwrap().execute_resp(msg.clone());
         if resp.to_resp_string().contains("ACK") {
             let _ = stream.write(resp.to_resp_string().as_bytes());
         }
