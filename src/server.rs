@@ -340,9 +340,13 @@ impl ServerState {
             None => {}
         }
         for _stream in self.slave_servers.iter_mut() {
-            let mut stream = TcpStream::connect(format!("{}:{}", _stream._ip, _stream._port)).unwrap();
-            let serial_cmd: String = RespType::Array(cmd.clone()).to_resp_string();
-            let _ = stream.write(serial_cmd.as_bytes());
+            match TcpStream::connect(format!("{}:{}", _stream._ip, _stream._port)) {
+                Ok(mut stream) => {
+                    let serial_cmd: String = RespType::Array(cmd.clone()).to_resp_string();
+                    let _ = stream.write(serial_cmd.as_bytes());
+                }
+                Err(e) => eprintln!("Failed to connect to slave server {}: {}: {}", _stream._ip, _stream._port, e),
+            }
         }
     }
 
