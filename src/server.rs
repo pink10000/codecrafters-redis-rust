@@ -213,7 +213,7 @@ impl ServerState {
                     };
                     println!("-Received slave port: {}", port);
                     RespType::SimpleString("OK".to_string())
-                }
+                },
                 "capa" => {
                     let capa: String = match arr[2].clone() {
                         RespType::BulkString(str) => str,
@@ -228,6 +228,22 @@ impl ServerState {
                     } else {
                         RespType::Error("ERR unknown capability".to_string())
                     }
+                },
+                "getack" => {
+                    let offset: u64 = match arr[2].clone() {
+                        RespType::BulkString(str) => str.parse().unwrap(),
+                        _ => {
+                            return RespType::Error(
+                                "ERR offset is not a valid BulkString".to_string(),
+                            )
+                        }
+                    };
+                    self.replication_offset = Some(offset);
+                    RespType::Array(vec![
+                        RespType::BulkString("REPLCONF".to_string()),
+                        RespType::BulkString("ACK".to_string()),
+                        RespType::BulkString("0".to_string()),
+                    ])
                 }
                 _ => RespType::Error("ERR unknown subcommand".to_string()),
             },
