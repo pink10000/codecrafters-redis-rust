@@ -15,8 +15,7 @@ use server::{ServerAddr, ServerState};
 
 const DEFAULT_PORT: u16 = 6379;
 
-fn handle_client(mut stream: TcpStream, srv: &Arc<Mutex<ServerState>>) {
-    let role: String = srv.lock().unwrap().get_role();
+fn handle_client(mut stream: TcpStream, srv: &Arc<Mutex<ServerState>>, role: String) {
     loop {
         let mut buf: [u8; 1024] = [0; 1024];
         let read_res: Result<usize, Error> = stream.read(&mut buf);
@@ -39,31 +38,33 @@ fn handle_client(mut stream: TcpStream, srv: &Arc<Mutex<ServerState>>) {
 
         // before it parses the response and and changes the state of the server
         // it needs to lock the server state, so that no other thread can access it
-        let parsed_response: RespType = srv.lock().unwrap().execute_resp(resp.clone());
-        let serialized_response: String = parsed_response.to_resp_string();
-        let _ = stream.write(serialized_response.as_bytes());
-        println!("-Sent response: {:?}", serialized_response);
+        {
+            let parsed_response: RespType = srv.lock().unwrap().execute_resp(resp.clone());
+            let serialized_response: String = parsed_response.to_resp_string();
+            let _ = stream.write(serialized_response.as_bytes());
+            println!("-Sent response: {:?}", serialized_response);
 
-        // check if resp has a slave of command; if it does, extract it
-        // this is a bad way to do it.... idk how else to do it
-        if parse_retain_cmd(&resp.clone()) {
-            match stream.try_clone() {
-                Ok(cloned_stream) => {
-                    srv.lock().unwrap().retain_slave(cloned_stream);
-                }
-                Err(e) => {
-                    eprintln!("Failed to clone stream: {}", e);
+            // check if resp has a slave of command; if it does, extract it
+            // this is a bad way to do it.... idk how else to do it
+            if parse_retain_cmd(&resp.clone()) {
+                match stream.try_clone() {
+                    Ok(cloned_stream) => {
+                        srv.lock().unwrap().retain_slave(cloned_stream);
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to clone stream: {}", e);
+                    }
                 }
             }
-        }
 
-        // check if resp needs to do a full resync (check for full resync command)
-        // if it does, then send it after the serialized response
-        // this is a bad way to do it.... idk how else to do it
-        if serialized_response.contains("FULLRESYNC") {
-            let full_resync: (String, Vec<u8>) = srv.lock().unwrap().full_resync();
-            let _ = stream.write(full_resync.0.as_bytes());
-            let _ = stream.write(full_resync.1.as_slice());
+            // check if resp needs to do a full resync (check for full resync command)
+            // if it does, then send it after the serialized response
+            // this is a bad way to do it.... idk how else to do it
+            if serialized_response.contains("FULLRESYNC") {
+                let full_resync: (String, Vec<u8>) = srv.lock().unwrap().full_resync();
+                let _ = stream.write(full_resync.0.as_bytes());
+                let _ = stream.write(full_resync.1.as_slice());
+            }
         }
     }
 }
@@ -236,8 +237,9 @@ fn main() {
         match stream {
             Ok(stream) => {
                 let srv_clone = Arc::clone(&server_state);
+                let srv_role_clone = srv_role.clone();
                 thread::spawn(move || {
-                    handle_client(stream, &srv_clone);
+                    handle_client(stream, &srv_clone, srv_role_clone);
                 });
             }
             Err(e) => {
