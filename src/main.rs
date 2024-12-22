@@ -162,6 +162,10 @@ fn continuous_replication(server_state: Arc<Mutex<ServerState>>, mut stream: Tcp
             Err(_) => return,
         };
         let _ = server_state.lock().unwrap().execute_resp(resp.clone());
+        if resp.to_resp_string().contains("ACK") {
+            let _ = stream.write(resp.to_resp_string().as_bytes());
+        }
+        
     }
 }
 
