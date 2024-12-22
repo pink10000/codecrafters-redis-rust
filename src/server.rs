@@ -94,7 +94,7 @@ impl ServerState {
     the replication offset.
     */
     pub fn execute_resp(&mut self, resp: RespType) -> RespType {
-        let out = match resp {
+        let out = match resp.clone() {
             RespType::Array(arr) => self.execute_array(arr),
             RespType::BulkString(str) => RespType::BulkString(str),
             RespType::SimpleString(_) => todo!(),
@@ -106,7 +106,7 @@ impl ServerState {
         match self.replication_offset {
             Some(offset) => {
                 self.replication_offset =
-                    Some(offset + out.to_resp_string().into_bytes().len() as u64)
+                    Some(offset + resp.to_resp_string().into_bytes().len() as u64)
             }
             None => {}
         }
