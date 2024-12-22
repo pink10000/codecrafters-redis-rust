@@ -21,15 +21,15 @@ fn handle_client(mut stream: TcpStream, srv: &Arc<Mutex<ServerState>>, role: Rol
     loop {
         let mut buf: [u8; 1024] = [0; 1024];
         let read_res: Result<usize, Error> = stream.read(&mut buf);
-        let resp: parser::RespType;
+        let msg: parser::RespType;
 
         match read_res {
             Ok(0) => return,
             Err(_) => return,
             Ok(size) => {
                 let command = String::from_utf8_lossy(&buf[..size]);
-                resp = parser::parse_resp(&command).unwrap();
-                println!("{} received command: {:?}", role, resp);
+                msg = parser::parse_resp(&command).unwrap();
+                println!("{} received command: {:?}", role, msg);
             }
         }
 
@@ -37,14 +37,15 @@ fn handle_client(mut stream: TcpStream, srv: &Arc<Mutex<ServerState>>, role: Rol
         // it needs to lock the server state, so that no other thread can access it
         // this scope is NECESSARY to ENSURE the lock is released.
         {
-            let parsed_response: RespType = srv.lock().unwrap().execute_resp(resp.clone());
+            srv.lock().unwrap().update_replication_offset(msg.clone());
+            let parsed_response: RespType = srv.lock().unwrap().execute_resp(msg.clone());
             let serialized_response: String = parsed_response.to_resp_string();
             let _ = stream.write(serialized_response.as_bytes());
             println!("-Sent response: {:?}", serialized_response);
 
             // check if resp has a slave of command; if it does, extract it
             // this is a bad way to do it.... idk how else to do it
-            if parse_retain_cmd(&resp.clone()) {
+            if parse_retain_cmd(&msg.clone()) {
                 match stream.try_clone() {
                     Ok(cloned_stream) => {
                         srv.lock().unwrap().retain_slave(cloned_stream);
@@ -161,6 +162,7 @@ fn continuous_replication(server_state: Arc<Mutex<ServerState>>, mut stream: Tcp
             }
             Err(_) => return,
         };
+        server_state.lock().unwrap().update_replication_offset(msg.clone());
         let resp: RespType = server_state.lock().unwrap().execute_resp(msg.clone());
         println!(" slave sent response: {:?}", resp.to_resp_string());
         if resp.to_resp_string().contains("ACK") {
