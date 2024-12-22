@@ -345,7 +345,7 @@ impl ServerState {
                     let serial_cmd: String = RespType::Array(cmd.clone()).to_resp_string();
                     let _ = stream.write(serial_cmd.as_bytes());
                 }
-                Err(e) => eprintln!("Failed to connect to slave server {}: {}: {}", _stream._ip, _stream._port, e),
+                Err(e) => eprintln!("Failed to connect to slave server ({}:{}) because {}", _stream._ip, _stream._port, e),
             }
         }
     }
