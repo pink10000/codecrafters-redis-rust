@@ -131,9 +131,9 @@ fn request_replication(
     let _replconf = String::from_utf8_lossy(&buf);
 
     // read psync response (rdb file)
-    // let mut buf: [u8; 1024] = [0; 1024];
-    // let _ = stream.read(&mut buf);
-    // let _rdb = &buf;
+    let mut buf: [u8; 1024] = [0; 1024];
+    let _ = stream.read(&mut buf);
+    let _rdb = &buf;
     println!(" Received rdb: (OUTPUT OMITTED)\n");
 
     continuous_replication(server_state, stream);
@@ -145,7 +145,7 @@ fn continuous_replication(server_state: Arc<Mutex<ServerState>>, mut stream: Tcp
     loop {
         let mut buf = [0u8; 1024];
         let msg: RespType = match stream.read(&mut buf) {
-            Ok(0) => break,
+            Ok(0) => return,
             Ok(size) => {
                 // parse the incoming RESP command
                 let command = String::from_utf8_lossy(&buf[..size]);
