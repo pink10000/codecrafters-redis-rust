@@ -1,4 +1,4 @@
-use crate::parser::RespType;
+use crate::parser::{parse_resp, RespType};
 use std::{
     collections::HashMap,
     fmt::format,
@@ -28,7 +28,7 @@ pub struct ServerState {
     expiry: HashMap<String, Instant>,
     replication_id: Option<String>,
     replication_offset: Option<u64>,
-    port: u16,
+    _port: u16,
     replica_of: Option<ServerAddr>,
 
     slave_servers: Vec<Arc<Mutex<TcpStream>>>,
@@ -57,7 +57,7 @@ impl ServerState {
         ServerState {
             db: HashMap::new(),
             expiry: HashMap::new(),
-            port: port,
+            _port: port,
             replication_id: repl_id,
             replication_offset: repl_offset,
             replica_of: replica_of,
@@ -72,73 +72,8 @@ impl ServerState {
         }
     }
 
-    pub fn request_replication(&self) {
-        // srv_state is automatically unlocked here when it goes out of scope
-        let master_ip = self.replica_of.as_ref().unwrap()._ip.clone();
-        let master_port = self.replica_of.as_ref().unwrap()._port;
-
-        // send ping
-        let mut stream = TcpStream::connect(format!("{}:{}", master_ip, master_port)).unwrap();
-        let serial_ping: String =
-            RespType::Array(vec![RespType::BulkString("PING".to_string())]).to_resp_string();
-        let _ = stream.write(serial_ping.as_bytes());
-
-        // read pong
-        let mut buf: [u8; 1024] = [0; 1024];
-        let _ = stream.read(&mut buf);
-        let pong = String::from_utf8_lossy(&buf);
-        println!("Received pong: {}", pong);
-
-        // send replication request
-        let serial_listening_port: String = RespType::Array(vec![
-            RespType::BulkString("REPLCONF".to_string()),
-            RespType::BulkString("listening-port".to_string()),
-            RespType::BulkString(format!("{}", self.port)),
-        ])
-        .to_resp_string();
-        let _ = stream.write(serial_listening_port.as_bytes());
-
-        // read replication response
-        let mut buf: [u8; 1024] = [0; 1024];
-        let _ = stream.read(&mut buf);
-        let replconf = String::from_utf8_lossy(&buf);
-        println!("Received replconf: {}", replconf);
-
-        // send capabilitiy sync
-        let serial_capa_sync: String = RespType::Array(vec![
-            RespType::BulkString("REPLCONF".to_string()),
-            RespType::BulkString("capa".to_string()),
-            RespType::BulkString("psync2".to_string()),
-        ])
-        .to_resp_string();
-        let _ = stream.write(serial_capa_sync.as_bytes());
-
-        // read replication response
-        let mut buf: [u8; 1024] = [0; 1024];
-        let _ = stream.read(&mut buf);
-        let replconf = String::from_utf8_lossy(&buf);
-        println!("Received replconf: {}", replconf);
-
-        // send psync
-        let serial_psync: String = RespType::Array(vec![
-            RespType::BulkString("PSYNC".to_string()),
-            RespType::BulkString("?".to_string()),
-            RespType::BulkString("-1".to_string()),
-        ])
-        .to_resp_string();
-        let _ = stream.write(serial_psync.as_bytes());
-
-        // read psync response (replication id and offset)
-        let mut buf: [u8; 1024] = [0; 1024];
-        let _ = stream.read(&mut buf);
-        let _replconf = String::from_utf8_lossy(&buf);
-        // println!("Received psync: {}", _replconf);
-
-        // read psync response (rdb file)
-        let mut buf: [u8; 1024] = [0; 1024];
-        let _ = stream.read(&mut buf);
-        let _rdb = String::from_utf8_lossy(&buf);
-        // println!("Received psync: {}", _rdb);
+    pub fn get_replica_of(&self) -> Option<ServerAddr> {
+        self.replica_of.clone()
     }
 
     pub fn retain_slave(&mut self, stream: TcpStream) {

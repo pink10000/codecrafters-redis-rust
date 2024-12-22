@@ -10,7 +10,7 @@ use std::{
     thread,
 };
 
-use parser::{parse_retain_cmd, RespType};
+use parser::{parse_resp, parse_retain_cmd, RespType};
 use server::{ServerAddr, ServerState};
 
 const DEFAULT_PORT: u16 = 6379;
@@ -44,7 +44,7 @@ fn handle_client(mut stream: TcpStream, srv: &Arc<Mutex<ServerState>>) {
         let _ = stream.write(serialized_response.as_bytes());
         println!("-Sent response: {:?}", serialized_response);
 
-        // check if resp has a slave of command; if it does, extract it 
+        // check if resp has a slave of command; if it does, extract it
         // this is a bad way to do it.... idk how else to do it
         if parse_retain_cmd(&resp.clone()) {
             match stream.try_clone() {
@@ -65,6 +65,103 @@ fn handle_client(mut stream: TcpStream, srv: &Arc<Mutex<ServerState>>) {
             let _ = stream.write(full_resync.0.as_bytes());
             let _ = stream.write(full_resync.1.as_slice());
         }
+    }
+}
+
+fn request_replication(
+    server_state: Arc<Mutex<ServerState>>,
+    self_port: u16,
+    master_ip: String,
+    master_port: u16,
+) {
+    // send ping
+    let mut stream = TcpStream::connect(format!("{}:{}", master_ip, master_port)).unwrap();
+    let serial_ping: String =
+        RespType::Array(vec![RespType::BulkString("PING".to_string())]).to_resp_string();
+    let _ = stream.write(serial_ping.as_bytes());
+
+    // read pong
+    let mut buf: [u8; 1024] = [0; 1024];
+    let _ = stream.read(&mut buf);
+    let pong = String::from_utf8_lossy(&buf);
+    println!("Received pong: {}", pong);
+
+    // send replication request
+    let serial_listening_port: String = RespType::Array(vec![
+        RespType::BulkString("REPLCONF".to_string()),
+        RespType::BulkString("listening-port".to_string()),
+        RespType::BulkString(format!("{}", self_port)),
+    ])
+    .to_resp_string();
+    let _ = stream.write(serial_listening_port.as_bytes());
+
+    // read replication response
+    let mut buf: [u8; 1024] = [0; 1024];
+    let _ = stream.read(&mut buf);
+    let replconf = String::from_utf8_lossy(&buf);
+    println!("Received replconf: {}", replconf);
+
+    // send capabilitiy sync
+    let serial_capa_sync: String = RespType::Array(vec![
+        RespType::BulkString("REPLCONF".to_string()),
+        RespType::BulkString("capa".to_string()),
+        RespType::BulkString("psync2".to_string()),
+    ])
+    .to_resp_string();
+    let _ = stream.write(serial_capa_sync.as_bytes());
+
+    // read replication response
+    let mut buf: [u8; 1024] = [0; 1024];
+    let _ = stream.read(&mut buf);
+    let replconf = String::from_utf8_lossy(&buf);
+    println!("Received replconf: {}", replconf);
+
+    // send psync
+    let serial_psync: String = RespType::Array(vec![
+        RespType::BulkString("PSYNC".to_string()),
+        RespType::BulkString("?".to_string()),
+        RespType::BulkString("-1".to_string()),
+    ])
+    .to_resp_string();
+    let _ = stream.write(serial_psync.as_bytes());
+
+    // read psync response (replication id and offset)
+    let mut buf: [u8; 1024] = [0; 1024];
+    let _ = stream.read(&mut buf);
+    let _replconf = String::from_utf8_lossy(&buf);
+
+    // read psync response (rdb file)
+    let mut buf: [u8; 1024] = [0; 1024];
+    let _ = stream.read(&mut buf);
+    let _rdb = String::from_utf8_lossy(&buf);
+
+    continuous_replication(server_state, stream);
+}
+
+fn continuous_replication(server_state: Arc<Mutex<ServerState>>, mut stream: TcpStream) {
+    // server needs to stay alive to handle replications
+    // minimizes lock contention
+    loop {
+        let mut buf = [0u8; 1024];
+        let resp: RespType = match stream.read(&mut buf) {
+            Ok(0) => break,
+            Ok(size) => {
+                // parse the incoming RESP command
+                let command = String::from_utf8_lossy(&buf[..size]);
+                match parse_resp(&command) {
+                    Ok(r) => {
+                        println!("slave received command: {:?}", r);
+                        r
+                    }
+                    Err(e) => {
+                        eprintln!("Error parsing RESP: {:?}", e);
+                        return;
+                    }
+                }
+            }
+            Err(_) => return,
+        };
+        let _ = server_state.lock().unwrap().execute_resp(resp.clone());
     }
 }
 
@@ -109,29 +206,38 @@ fn main() {
         idx += 1;
     }
 
-    let server_state: ServerState = ServerState::new(port, replica_of);
+    let srv = ServerState::new(port, replica_of);
+    let server_state = Arc::new(Mutex::new(srv));
     let listener = TcpListener::bind(format!("127.0.0.1:{}", port)).unwrap();
-    
+
     // needs to request replication if the server is a slave
-    let srv_role: String = server_state.get_role();
+    let srv_role: String = server_state.lock().unwrap().get_role();
     println!("Server role: {}\n", srv_role);
+
+    // if the server is a slave, then request continuous replication
     if srv_role == "slave" {
         println!("-Requesting replication...");
-        server_state.request_replication();
-        println!("-Replication finished.");
+        let server_state_clone = Arc::clone(&server_state);
+        let replica_of = server_state
+            .lock()
+            .unwrap()
+            .get_replica_of()
+            .clone()
+            .unwrap();
+        std::thread::spawn(move || {
+            request_replication(server_state_clone, port, replica_of._ip, replica_of._port);
+            println!("-No longer replicating from master.");
+        });
     }
-    
+
     // server state that is shared between threads
-    let server_state = Arc::new(Mutex::new(server_state.clone()));
     for stream in listener.incoming() {
         println!("\nFound stream, handling connection:");
         match stream {
             Ok(stream) => {
-                thread::spawn({
-                    let srv = Arc::clone(&server_state);
-                    move || {
-                        handle_client(stream, &srv);
-                    }
+                let srv_clone = Arc::clone(&server_state);
+                thread::spawn(move || {
+                    handle_client(stream, &srv_clone);
                 });
             }
             Err(e) => {
