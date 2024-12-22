@@ -1,4 +1,7 @@
-use crate::{parser::{parse_resp, RespType}, role};
+use crate::{
+    parser::{parse_resp, RespType},
+    role,
+};
 use std::{
     collections::HashMap,
     fmt::format,
@@ -87,10 +90,11 @@ impl ServerState {
     }
 
     /*
-    So far, most execuations require the type to be a  RespType::Array.
+    So far, most execuations require the type to be a RespType::Array. Also processes
+    the replication offset.
     */
     pub fn execute_resp(&mut self, resp: RespType) -> RespType {
-        match resp {
+        let out = match resp {
             RespType::Array(arr) => self.execute_array(arr),
             RespType::BulkString(str) => RespType::BulkString(str),
             RespType::SimpleString(_) => todo!(),
@@ -98,7 +102,15 @@ impl ServerState {
             RespType::Integer(_) => todo!(),
             RespType::NullBulkString => RespType::NullBulkString,
             RespType::NullArray => RespType::NullArray,
+        };
+        match self.replication_offset {
+            Some(offset) => {
+                self.replication_offset =
+                    Some(offset + out.to_resp_string().into_bytes().len() as u64)
+            }
+            None => {}
         }
+        return out;
     }
 
     /*
@@ -213,7 +225,7 @@ impl ServerState {
                     };
                     println!("-Received slave port: {}", port);
                     RespType::SimpleString("OK".to_string())
-                },
+                }
                 "capa" => {
                     let capa: String = match arr[2].clone() {
                         RespType::BulkString(str) => str,
@@ -228,21 +240,18 @@ impl ServerState {
                     } else {
                         RespType::Error("ERR unknown capability".to_string())
                     }
-                },
+                }
                 "getack" => {
-                    // let offset: u64 = match arr[2].clone() {
-                    //     RespType::BulkString(str) => str.parse().unwrap(),
-                    //     _ => {
-                    //         return RespType::Error(
-                    //             "ERR offset is not a valid BulkString".to_string(),
-                    //         )
-                    //     }
-                    // };
-                    // self.replication_offset = Some(offset);
+                    // this is the only time the offset value changes from None
+                    let offset: u64 = match self.replication_offset {
+                        Some(offset) => offset,
+                        None => 0,
+                    };
+                    self.replication_offset = Some(offset);
                     RespType::Array(vec![
                         RespType::BulkString("REPLCONF".to_string()),
                         RespType::BulkString("ACK".to_string()),
-                        RespType::BulkString("0".to_string()),
+                        RespType::BulkString(offset.to_string()),
                     ])
                 }
                 _ => RespType::Error("ERR unknown subcommand".to_string()),
