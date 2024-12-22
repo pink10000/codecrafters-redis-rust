@@ -1,4 +1,4 @@
-use crate::parser::{parse_resp, RespType};
+use crate::{parser::{parse_resp, RespType}, role};
 use std::{
     collections::HashMap,
     fmt::format,
@@ -7,6 +7,8 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
+
+use role::Role;
 
 #[derive(Clone)]
 pub struct ServerAddr {
@@ -65,10 +67,10 @@ impl ServerState {
         }
     }
 
-    pub fn get_role(&self) -> String {
+    pub fn get_role(&self) -> Role {
         match self.replica_of {
-            Some(_) => "slave".to_string(),
-            None => "master".to_string(),
+            Some(_) => Role::Slave,
+            None => Role::Master,
         }
     }
 
@@ -77,7 +79,10 @@ impl ServerState {
     }
 
     pub fn retain_slave(&mut self, stream: TcpStream) {
-        println!("Retaining active slave stream: {}", stream.peer_addr().unwrap());
+        println!(
+            "Retaining active slave stream: {}",
+            stream.peer_addr().unwrap()
+        );
         self.slave_servers.push(Arc::new(Mutex::new(stream))); // Store the stream
     }
 
@@ -175,7 +180,7 @@ impl ServerState {
                     let mut output: Vec<String> = Vec::new();
                     let role = self.get_role();
                     output.push(format!("role:{}", role));
-                    if role == "master" {
+                    if role == Role::Master {
                         output.push(format!(
                             "master_replid:{}",
                             self.replication_id.clone().unwrap()

@@ -1,6 +1,7 @@
 #![allow(unused_imports)]
 pub mod parser;
 pub mod server;
+pub mod role;
 
 use std::{
     env,
@@ -12,32 +13,29 @@ use std::{
 
 use parser::{parse_resp, parse_retain_cmd, RespType};
 use server::{ServerAddr, ServerState};
+use role::Role;
 
 const DEFAULT_PORT: u16 = 6379;
 
-fn handle_client(mut stream: TcpStream, srv: &Arc<Mutex<ServerState>>, role: String) {
+fn handle_client(mut stream: TcpStream, srv: &Arc<Mutex<ServerState>>, role: Role) {
     loop {
         let mut buf: [u8; 1024] = [0; 1024];
         let read_res: Result<usize, Error> = stream.read(&mut buf);
         let resp: parser::RespType;
 
         match read_res {
-            Ok(0) => {
-                return;
-            }
+            Ok(0) => return,
+            Err(_) => return,
             Ok(size) => {
                 let command = String::from_utf8_lossy(&buf[..size]);
                 resp = parser::parse_resp(&command).unwrap();
                 println!("{} received command: {:?}", role, resp);
             }
-            Err(e) => {
-                eprintln!("Failed to read from stream: {}", e);
-                return;
-            }
         }
 
         // before it parses the response and and changes the state of the server
         // it needs to lock the server state, so that no other thread can access it
+        // this scope is NECESSARY to ENSURE the lock is released.
         {
             let parsed_response: RespType = srv.lock().unwrap().execute_resp(resp.clone());
             let serialized_response: String = parsed_response.to_resp_string();
@@ -85,7 +83,7 @@ fn request_replication(
     let mut buf: [u8; 1024] = [0; 1024];
     let _ = stream.read(&mut buf);
     let pong = String::from_utf8_lossy(&buf);
-    println!("Received pong: {}", pong);
+    print!(" Received pong: {}", pong);
 
     // send replication request
     let serial_listening_port: String = RespType::Array(vec![
@@ -100,7 +98,7 @@ fn request_replication(
     let mut buf: [u8; 1024] = [0; 1024];
     let _ = stream.read(&mut buf);
     let replconf = String::from_utf8_lossy(&buf);
-    println!("Received replconf: {}", replconf);
+    print!(" Received replconf: {}", replconf);
 
     // send capabilitiy sync
     let serial_capa_sync: String = RespType::Array(vec![
@@ -115,7 +113,7 @@ fn request_replication(
     let mut buf: [u8; 1024] = [0; 1024];
     let _ = stream.read(&mut buf);
     let replconf = String::from_utf8_lossy(&buf);
-    println!("Received replconf: {}", replconf);
+    print!(" Received replconf: {}", replconf);
 
     // send psync
     let serial_psync: String = RespType::Array(vec![
@@ -134,7 +132,8 @@ fn request_replication(
     // read psync response (rdb file)
     let mut buf: [u8; 1024] = [0; 1024];
     let _ = stream.read(&mut buf);
-    let _rdb = String::from_utf8_lossy(&buf);
+    let _rdb = &buf;
+    println!(" Received rdb: (OUTPUT OMITTED)\n");
 
     continuous_replication(server_state, stream);
 }
@@ -151,11 +150,11 @@ fn continuous_replication(server_state: Arc<Mutex<ServerState>>, mut stream: Tcp
                 let command = String::from_utf8_lossy(&buf[..size]);
                 match parse_resp(&command) {
                     Ok(r) => {
-                        println!("slave received command: {:?}", r);
+                        println!(" slave received command: {:?}", r);
                         r
                     }
                     Err(e) => {
-                        eprintln!("Error parsing RESP: {:?}", e);
+                        eprintln!(" error parsing replication RESP: {:?}", e);
                         return;
                     }
                 }
@@ -212,12 +211,12 @@ fn main() {
     let listener = TcpListener::bind(format!("127.0.0.1:{}", port)).unwrap();
 
     // needs to request replication if the server is a slave
-    let srv_role: String = server_state.lock().unwrap().get_role();
-    println!("Server role: {}\n", srv_role);
+    let srv_role: Role = server_state.lock().unwrap().get_role();
+    println!("Server role: {:?}\n", srv_role);
 
     // if the server is a slave, then request continuous replication
-    if srv_role == "slave" {
-        println!("-Requesting replication...");
+    if srv_role == Role::Slave {
+        println!("----- Requesting replication...");
         let server_state_clone = Arc::clone(&server_state);
         let replica_of = server_state
             .lock()
@@ -238,13 +237,9 @@ fn main() {
             Ok(stream) => {
                 let srv_clone = Arc::clone(&server_state);
                 let srv_role_clone = srv_role.clone();
-                thread::spawn(move || {
-                    handle_client(stream, &srv_clone, srv_role_clone);
-                });
+                thread::spawn(move || handle_client(stream, &srv_clone, srv_role_clone));
             }
-            Err(e) => {
-                println!("error: {}", e);
-            }
+            Err(e) => eprintln!("error: {}", e),
         }
     }
 }
