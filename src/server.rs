@@ -181,7 +181,6 @@ impl ServerState {
         self.check_expiry();
         match self.db.get(&key) {
             Some(val) => {
-                println!("Value: {}", val);
                 RespType::SimpleString(val.clone())
             }
             None => RespType::NullBulkString,
