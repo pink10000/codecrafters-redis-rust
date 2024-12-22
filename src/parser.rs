@@ -171,20 +171,20 @@ where
     Ok(RespType::Array(array))
 }
 
-pub fn extract_slave_port(resp: &RespType) -> Option<u16> {
+pub fn parse_retain_cmd(resp: &RespType) -> bool {
     if let RespType::Array(vec) = resp {
         if vec.len() == 3 {
             match (&vec[0], &vec[1], &vec[2]) {
                 (
                     RespType::BulkString(cmd),
                     RespType::BulkString(arg),
-                    RespType::BulkString(port),
+                    RespType::BulkString(_port),
                 ) if cmd == "REPLCONF" && arg == "listening-port" => {
-                    return port.parse::<u16>().ok();
+                    return true;
                 }
                 _ => {}
             }
         }
     }
-    None
+    false
 }

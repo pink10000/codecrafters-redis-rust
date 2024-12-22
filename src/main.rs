@@ -10,7 +10,7 @@ use std::{
     thread,
 };
 
-use parser::{extract_slave_port, RespType};
+use parser::{parse_retain_cmd, RespType};
 use server::{ServerAddr, ServerState};
 
 const DEFAULT_PORT: u16 = 6379;
@@ -46,18 +46,15 @@ fn handle_client(mut stream: TcpStream, srv: &Arc<Mutex<ServerState>>) {
 
         // check if resp has a slave of command; if it does, extract it 
         // this is a bad way to do it.... idk how else to do it
-        match extract_slave_port(&resp.clone()) {
-            Some(_slave_port) => {
-                match stream.try_clone() {
-                    Ok(cloned_stream) => {
-                        srv.lock().unwrap().retain_slave(cloned_stream);
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to clone stream: {}", e);
-                    }
+        if parse_retain_cmd(&resp.clone()) {
+            match stream.try_clone() {
+                Ok(cloned_stream) => {
+                    srv.lock().unwrap().retain_slave(cloned_stream);
+                }
+                Err(e) => {
+                    eprintln!("Failed to clone stream: {}", e);
                 }
             }
-            None => {}
         }
 
         // check if resp needs to do a full resync (check for full resync command)
