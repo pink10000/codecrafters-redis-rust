@@ -131,9 +131,9 @@ fn request_replication(
     let _replconf = String::from_utf8_lossy(&buf);
 
     // read psync response (rdb file)
-    let mut buf: [u8; 1024] = [0; 1024];
-    let _ = stream.read(&mut buf);
-    let _rdb = &buf;
+    // let mut buf: [u8; 1024] = [0; 1024];
+    // let _ = stream.read(&mut buf);
+    // let _rdb = &buf;
     println!(" Received rdb: (OUTPUT OMITTED)\n");
 
     continuous_replication(server_state, stream);
