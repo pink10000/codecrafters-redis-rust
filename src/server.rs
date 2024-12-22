@@ -31,7 +31,7 @@ pub struct ServerState {
     port: u16,
     replica_of: Option<ServerAddr>,
 
-    slave_servers: Vec<ServerAddr>,
+    slave_servers: Vec<Arc<Mutex<TcpStream>>>,
 }
 
 /*
@@ -141,19 +141,9 @@ impl ServerState {
         // println!("Received psync: {}", _rdb);
     }
 
-    pub fn retain_slave(&mut self, stream: TcpStream, slave_port: u16) {
-        match stream.peer_addr() {
-            Ok(peer) => {
-                println!(
-                    "--Retaining active slave stream: {}:{}",
-                    peer.ip(),
-                    slave_port
-                );
-                self.slave_servers
-                    .push(ServerAddr::new(peer.ip().to_string(), slave_port));
-            }
-            Err(e) => eprintln!("Failed to retain slave stream: {}", e),
-        }
+    pub fn retain_slave(&mut self, stream: TcpStream) {
+        println!("Retaining active slave stream: {}", stream.peer_addr().unwrap());
+        self.slave_servers.push(Arc::new(Mutex::new(stream))); // Store the stream
     }
 
     /*
@@ -339,13 +329,20 @@ impl ServerState {
             }
             None => {}
         }
-        for _stream in self.slave_servers.iter_mut() {
-            match TcpStream::connect(format!("{}:{}", _stream._ip, _stream._port)) {
-                Ok(mut stream) => {
-                    let serial_cmd: String = RespType::Array(cmd.clone()).to_resp_string();
-                    let _ = stream.write(serial_cmd.as_bytes());
-                }
-                Err(e) => eprintln!("Failed to connect to slave server ({}:{}) because {}", _stream._ip, _stream._port, e),
+        let serialized_command: String = RespType::Array(cmd).to_resp_string();
+        for slave in &self.slave_servers {
+            let mut stream = slave.lock().unwrap();
+            if let Err(e) = stream.write_all(serialized_command.as_bytes()) {
+                eprintln!(
+                    "Failed to send command to slave {}: {:?}",
+                    stream.peer_addr().unwrap(),
+                    e
+                );
+            } else {
+                println!(
+                    "Successfully propagated command to slave {}",
+                    stream.peer_addr().unwrap()
+                );
             }
         }
     }
